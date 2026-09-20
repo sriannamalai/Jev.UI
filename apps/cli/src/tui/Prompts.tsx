@@ -38,8 +38,15 @@ export function TextPrompt(props: {
   width?: number;
   color?: boolean;
 }) {
-  const { label, initial = '', onSubmit, onCancel, validate, width = DEFAULT_WIDTH, color = true } =
-    props;
+  const {
+    label,
+    initial = '',
+    onSubmit,
+    onCancel,
+    validate,
+    width = DEFAULT_WIDTH,
+    color = true,
+  } = props;
   const [value, setValue] = useState(initial);
   const [cursor, setCursor] = useState(initial.length);
   const [error, setError] = useState<string | undefined>(undefined);

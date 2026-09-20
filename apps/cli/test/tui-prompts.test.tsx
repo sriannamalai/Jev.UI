@@ -50,7 +50,9 @@ describe('TextPrompt', () => {
 
   it('Home and End move the cursor to the edges', async () => {
     const onSubmit = vi.fn();
-    const { stdin } = render(<TextPrompt label="X" initial="bc" onSubmit={onSubmit} onCancel={vi.fn()} />);
+    const { stdin } = render(
+      <TextPrompt label="X" initial="bc" onSubmit={onSubmit} onCancel={vi.fn()} />,
+    );
     stdin.write('\u0001'); // Ctrl+A -> Home
     await tick();
     stdin.write('a');

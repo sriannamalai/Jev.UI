@@ -2,7 +2,7 @@
 // three (spec §8.2). `Results.tsx` (13a) is the third pane's content.
 import type { ReactNode } from 'react';
 import { Box, Text } from 'ink';
-import { estimateStateBudget, LIMITS, questionIds } from '@jev-ui/core';
+import { DEFAULT_MODEL, estimateStateBudget, LIMITS, questionIds } from '@jev-ui/core';
 import type { Question, Request } from '@jev-ui/core';
 import { truncate } from './bars.js';
 
@@ -52,6 +52,7 @@ export function StateView(props: { request: Request; width: number }) {
 
   return (
     <Box flexDirection="column" width={width}>
+      <Text>{truncate(`model: ${request.model ?? DEFAULT_MODEL}`, width)}</Text>
       {shown.map((line, index) => (
         <Text key={index}>{truncate(line, width)}</Text>
       ))}

@@ -1,12 +1,19 @@
 // Single entry point for the TUI's keyboard handling (spec §8.2). Kept as one
-// function, routed through one `KeyContext`, so the next task (add/delete/
-// rename/edit/save/export keys) can extend it here rather than scattering
-// `useInput` handlers across components.
+// function, routed through one `KeyContext`, so the next task (sets/export/
+// $EDITOR/quit-confirm) can extend it here rather than scattering `useInput`
+// handlers across components.
 import type { Key } from 'ink';
 
 export type Pane = 'state' | 'questions' | 'results';
 
 export const PANES: readonly Pane[] = ['state', 'questions', 'results'];
+
+/** The UI's input mode. In `prompt` mode `handleKey` does nothing at all —
+ * the open prompt component owns `useInput` instead (App disables this
+ * handler's hook via `isActive` while a prompt is open, but `handleKey`
+ * also short-circuits defensively). `help` shows the key reference
+ * overlay; only Esc does anything while it's open. */
+export type Mode = 'normal' | 'prompt' | 'help';
 
 /** Every key this slice understands, key label -> what it does. Rendered
  * verbatim by the help overlay ('?'). */
@@ -15,21 +22,37 @@ export const KEYMAP: Record<string, string> = {
   '1 / 2 / 3': 'jump to a pane',
   '↑ / ↓ (k/j)': 'move selection',
   r: 'run',
+  a: 'add question',
+  d: 'delete question',
+  D: 'duplicate question',
+  'J / K': 'move question down / up',
+  Enter: 'edit selected question',
+  n: 'rename selected question',
+  i: 'edit state (single line)',
+  m: 'set model',
   '?': 'toggle this help',
-  Esc: 'close help',
+  Esc: 'close help / cancel a prompt',
   q: 'quit',
 };
 
 export interface KeyContext {
   focused: Pane;
   setFocused(pane: Pane): void;
-  helpVisible: boolean;
-  setHelpVisible(visible: boolean): void;
+  mode: Mode;
+  setMode(mode: Mode): void;
   questionIds: string[];
   selectedId: string | undefined;
   select(id: string | undefined): void;
   runRequested(): void;
   exit(): void;
+  addQuestion(): void;
+  deleteQuestion(): void;
+  duplicateQuestion(): void;
+  moveQuestion(delta: -1 | 1): void;
+  editSelected(): void;
+  renameSelected(): void;
+  editState(): void;
+  editModel(): void;
 }
 
 function cyclePane(current: Pane, delta: 1 | -1): Pane {
@@ -49,18 +72,23 @@ function moveSelection(ctx: KeyContext, delta: 1 | -1): void {
 }
 
 export function handleKey(input: string, key: Key, ctx: KeyContext): void {
+  // A prompt is open and owns all input; this handler is normally disabled
+  // (via useInput's `isActive`) while that's the case, but this guard keeps
+  // `handleKey` itself a no-op too, so it's safe to call directly.
+  if (ctx.mode === 'prompt') return;
+
   if (input === 'q' || (key.ctrl && input === 'c')) {
     ctx.exit();
     return;
   }
 
-  if (ctx.helpVisible) {
-    if (key.escape) ctx.setHelpVisible(false);
+  if (ctx.mode === 'help') {
+    if (key.escape) ctx.setMode('normal');
     return;
   }
 
   if (input === '?') {
-    ctx.setHelpVisible(true);
+    ctx.setMode('help');
     return;
   }
 
@@ -92,6 +120,44 @@ export function handleKey(input: string, key: Key, ctx: KeyContext): void {
   }
   if (ctx.focused === 'questions' && (key.upArrow || input === 'k')) {
     moveSelection(ctx, -1);
+    return;
+  }
+
+  if (key.return && ctx.focused === 'questions') {
+    ctx.editSelected();
+    return;
+  }
+
+  if (input === 'a') {
+    ctx.addQuestion();
+    return;
+  }
+  if (input === 'd') {
+    ctx.deleteQuestion();
+    return;
+  }
+  if (input === 'D') {
+    ctx.duplicateQuestion();
+    return;
+  }
+  if (input === 'J') {
+    ctx.moveQuestion(1);
+    return;
+  }
+  if (input === 'K') {
+    ctx.moveQuestion(-1);
+    return;
+  }
+  if (input === 'n') {
+    ctx.renameSelected();
+    return;
+  }
+  if (input === 'i') {
+    ctx.editState();
+    return;
+  }
+  if (input === 'm') {
+    ctx.editModel();
     return;
   }
 

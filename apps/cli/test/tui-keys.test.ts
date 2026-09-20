@@ -33,13 +33,21 @@ function makeCtx(overrides: Partial<KeyContext> = {}): KeyContext {
   return {
     focused: 'state',
     setFocused: vi.fn(),
-    helpVisible: false,
-    setHelpVisible: vi.fn(),
+    mode: 'normal',
+    setMode: vi.fn(),
     questionIds: ['a', 'b', 'c'],
     selectedId: 'a',
     select: vi.fn(),
     runRequested: vi.fn(),
     exit: vi.fn(),
+    addQuestion: vi.fn(),
+    deleteQuestion: vi.fn(),
+    duplicateQuestion: vi.fn(),
+    moveQuestion: vi.fn(),
+    editSelected: vi.fn(),
+    renameSelected: vi.fn(),
+    editState: vi.fn(),
+    editModel: vi.fn(),
     ...overrides,
   };
 }
@@ -55,6 +63,16 @@ describe('handleKey', () => {
     const ctx = makeCtx();
     handleKey('c', key({ ctrl: true }), ctx);
     expect(ctx.exit).toHaveBeenCalledOnce();
+  });
+
+  it('does nothing while a prompt is open, not even q', () => {
+    const ctx = makeCtx({ mode: 'prompt' });
+    handleKey('q', key(), ctx);
+    handleKey('r', key(), ctx);
+    handleKey('a', key(), ctx);
+    expect(ctx.exit).not.toHaveBeenCalled();
+    expect(ctx.runRequested).not.toHaveBeenCalled();
+    expect(ctx.addQuestion).not.toHaveBeenCalled();
   });
 
   it('cycles focus forward on Tab', () => {
@@ -133,21 +151,57 @@ describe('handleKey', () => {
   it('opens help on ?', () => {
     const ctx = makeCtx();
     handleKey('?', key(), ctx);
-    expect(ctx.setHelpVisible).toHaveBeenCalledWith(true);
+    expect(ctx.setMode).toHaveBeenCalledWith('help');
   });
 
   it('closes help on Esc, and swallows every other key while open', () => {
-    const ctx = makeCtx({ helpVisible: true });
+    const ctx = makeCtx({ mode: 'help' });
     handleKey('r', key(), ctx);
     expect(ctx.runRequested).not.toHaveBeenCalled();
     handleKey('', key({ escape: true }), ctx);
-    expect(ctx.setHelpVisible).toHaveBeenCalledWith(false);
+    expect(ctx.setMode).toHaveBeenCalledWith('normal');
   });
 
   it('still quits while help is open', () => {
-    const ctx = makeCtx({ helpVisible: true });
+    const ctx = makeCtx({ mode: 'help' });
     handleKey('q', key(), ctx);
     expect(ctx.exit).toHaveBeenCalledOnce();
+  });
+
+  it('edits the selected question on Enter when Questions is focused', () => {
+    const ctx = makeCtx({ focused: 'questions' });
+    handleKey('', key({ return: true }), ctx);
+    expect(ctx.editSelected).toHaveBeenCalledOnce();
+  });
+
+  it('ignores Enter when a different pane is focused', () => {
+    const ctx = makeCtx({ focused: 'state' });
+    handleKey('', key({ return: true }), ctx);
+    expect(ctx.editSelected).not.toHaveBeenCalled();
+  });
+
+  const commands: [string, keyof KeyContext][] = [
+    ['a', 'addQuestion'],
+    ['d', 'deleteQuestion'],
+    ['D', 'duplicateQuestion'],
+    ['n', 'renameSelected'],
+    ['i', 'editState'],
+    ['m', 'editModel'],
+  ];
+  for (const [input, method] of commands) {
+    it(`calls ctx.${method} on ${input}`, () => {
+      const ctx = makeCtx();
+      handleKey(input, key(), ctx);
+      expect(ctx[method]).toHaveBeenCalledOnce();
+    });
+  }
+
+  it('calls ctx.moveQuestion(1) on J and ctx.moveQuestion(-1) on K', () => {
+    const ctx = makeCtx();
+    handleKey('J', key(), ctx);
+    expect(ctx.moveQuestion).toHaveBeenCalledWith(1);
+    handleKey('K', key(), ctx);
+    expect(ctx.moveQuestion).toHaveBeenCalledWith(-1);
   });
 });
 

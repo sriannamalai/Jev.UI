@@ -22,11 +22,7 @@ describe('choiceToLines / linesToChoice', () => {
   it('round-trips key: description lines', () => {
     const q = choiceQ({ technical: 'A tech issue', sales: null, billing: 'Billing question' });
     const lines = choiceToLines(q);
-    expect(lines).toEqual([
-      'technical: A tech issue',
-      'sales:',
-      'billing: Billing question',
-    ]);
+    expect(lines).toEqual(['technical: A tech issue', 'sales:', 'billing: Billing question']);
     const result = linesToChoice(lines, q);
     expect(result).toEqual({ ok: true, criteria: q.criteria });
   });

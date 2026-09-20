@@ -99,7 +99,9 @@ export function linesToScore(
 /** Whether a `Text` value can be edited with a plain text prompt: strings
  * (and an absent value, treated as empty) are editable; structured
  * objects/arrays are not — the UI shows "press E to edit as JSON" instead. */
-export function editableText(value: Text | undefined): { editable: true; text: string } | { editable: false } {
+export function editableText(
+  value: Text | undefined,
+): { editable: true; text: string } | { editable: false } {
   if (value === undefined) return { editable: true, text: '' };
   if (typeof value === 'string') return { editable: true, text: value };
   return { editable: false };
