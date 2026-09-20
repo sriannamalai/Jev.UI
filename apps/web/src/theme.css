@@ -1,0 +1,76 @@
+:root {
+  --bg: #f4f2ec;
+  --panel: #fbfaf6;
+  --sunk: #efece4;
+  --line: #dcd7ca;
+  --line-soft: #e8e4d9;
+  --ink: #1d1c18;
+  --ink-2: #57544a;
+  --ink-3: #8a8677;
+  --accent: #0f6b5c;
+  --accent-soft: #d6ebe5;
+  --accent-ink: #ffffff;
+  --warn: #b26a00;
+  --warn-soft: #f6e7c8;
+  --link: #2b5fa8;
+  --str: #8a4b12;
+  --key: #0f6b5c;
+  --num: #6a3fa0;
+  --hl: #fff3c4;
+}
+
+:root[data-theme='dark'] {
+  --bg: #14151a;
+  --panel: #1b1d23;
+  --sunk: #111216;
+  --line: #2d3039;
+  --line-soft: #24262e;
+  --ink: #e9e7e1;
+  --ink-2: #a9a69c;
+  --ink-3: #74727a;
+  --accent: #4fc3ae;
+  --accent-soft: #173a35;
+  --accent-ink: #0c1f1c;
+  --warn: #e0a345;
+  --warn-soft: #3a2d14;
+  --link: #8ab4f0;
+  --str: #e0a877;
+  --key: #4fc3ae;
+  --num: #b99cf0;
+  --hl: #3a3420;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font:
+    13px/1.45 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+.mono,
+code,
+pre,
+input,
+textarea {
+  font-family: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
