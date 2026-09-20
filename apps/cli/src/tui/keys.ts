@@ -16,7 +16,7 @@ export const PANES: readonly Pane[] = ['state', 'questions', 'results'];
 export type Mode = 'normal' | 'prompt' | 'help';
 
 /** Every key this slice understands, key label -> what it does. Rendered
- * verbatim by the help overlay ('?'). */
+ * verbatim by the help overlay ('?'), grouped by `KEY_GROUPS`. */
 export const KEYMAP: Record<string, string> = {
   Tab: 'cycle panes',
   '1 / 2 / 3': 'jump to a pane',
@@ -30,10 +30,25 @@ export const KEYMAP: Record<string, string> = {
   n: 'rename selected question',
   i: 'edit state (single line)',
   m: 'set model',
+  o: 'open a saved set',
+  s: 'save (prompts for a name the first time)',
+  S: 'save as (always prompts for a name)',
+  e: 'export as cURL / Python / TypeScript',
+  E: 'edit the full request as JSON in $EDITOR',
   '?': 'show help (Esc closes)',
   Esc: 'close help / cancel a prompt',
-  q: 'quit',
+  q: 'quit (confirms first if there are unsaved changes)',
 };
+
+/** `'?'`'s grouping of `KEYMAP` into short headings. Every `KEYMAP` key
+ * appears in exactly one group; the help overlay renders group-by-group. */
+export const KEY_GROUPS: { heading: string; keys: string[] }[] = [
+  { heading: 'Navigate', keys: ['Tab', '1 / 2 / 3', '↑ / ↓ (k/j)'] },
+  { heading: 'Run', keys: ['r'] },
+  { heading: 'Edit', keys: ['a', 'd', 'D', 'J / K', 'Enter', 'n', 'i', 'm'] },
+  { heading: 'Sets & export', keys: ['o', 's', 'S', 'e', 'E'] },
+  { heading: 'App', keys: ['?', 'Esc', 'q'] },
+];
 
 export interface KeyContext {
   focused: Pane;
@@ -53,6 +68,10 @@ export interface KeyContext {
   renameSelected(): void;
   editState(): void;
   editModel(): void;
+  openSet(): void;
+  save(forcePrompt: boolean): void;
+  exportFlow(): void;
+  editInEditor(): void;
 }
 
 function cyclePane(current: Pane, delta: 1 | -1): Pane {
@@ -158,6 +177,26 @@ export function handleKey(input: string, key: Key, ctx: KeyContext): void {
   }
   if (input === 'm') {
     ctx.editModel();
+    return;
+  }
+  if (input === 'o') {
+    ctx.openSet();
+    return;
+  }
+  if (input === 'S') {
+    ctx.save(true);
+    return;
+  }
+  if (input === 's') {
+    ctx.save(false);
+    return;
+  }
+  if (input === 'e') {
+    ctx.exportFlow();
+    return;
+  }
+  if (input === 'E') {
+    ctx.editInEditor();
     return;
   }
 

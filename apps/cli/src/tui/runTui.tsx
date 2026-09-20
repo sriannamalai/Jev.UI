@@ -2,6 +2,7 @@
 // non-TTY stdin (pipes go through `jev ask` instead), then renders `<App>`
 // and waits for it to exit. `stdin`/`stderr` are overridable so tests can
 // exercise the refusal path without touching the real process.
+import { access, writeFile } from 'node:fs/promises';
 import { render } from 'ink';
 import {
   createHistory,
@@ -11,6 +12,7 @@ import {
   resolveSetsDir,
   run,
 } from '@jev-ui/core';
+import { openInEditor } from './editor.js';
 import { App } from './App.js';
 import type { TuiDeps } from './App.js';
 
@@ -21,8 +23,13 @@ export interface RunTuiOptions {
   stderr?: { write(s: string): unknown };
 }
 
-async function notImplementedEditor(): Promise<string> {
-  throw new Error('not implemented');
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function runTui(opts: RunTuiOptions = {}): Promise<void> {
@@ -42,9 +49,18 @@ export async function runTui(opts: RunTuiOptions = {}): Promise<void> {
     sets: createSets(resolveSetsDir(opts.setsDir, env)),
     history: createHistory(),
     keyConfigured: resolveApiKey(undefined, env) !== undefined,
-    openEditor: notImplementedEditor,
+    openEditor: (text) => openInEditor(text, env),
+    writeFile: (path, text) => writeFile(path, text, 'utf8'),
+    fileExists,
+    cwd: () => process.cwd(),
+    env,
   };
 
-  const instance = render(<App deps={deps} />);
+  // Ink's default `exitOnCtrlC: true` force-exits the process on the raw
+  // Ctrl+C byte before any component's own `useInput` sees it (confirmed
+  // in ink's App.js: its internal handler runs ahead of user listeners).
+  // `App`'s quit flow needs to see Ctrl+C itself to ask for confirmation
+  // when there are unsaved changes, so that default is turned off here.
+  const instance = render(<App deps={deps} />, { exitOnCtrlC: false });
   await instance.waitUntilExit();
 }

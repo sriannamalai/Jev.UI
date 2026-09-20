@@ -1,24 +1,31 @@
 // The TUI's app frame: three panes (wide) or a tab strip + one pane
-// (narrow), focus, selection, run, and the editing keys (spec §8.2). Sets,
-// export, `$EDITOR` and quit-confirm are the next task's job.
+// (narrow), focus, selection, run, the editing keys, sets, export,
+// `$EDITOR`, and quit confirmation (spec §8.2).
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import {
   DEFAULT_MODEL,
   JevError,
+  SET_NAME_RE,
   isValidQuestionId,
   initialWorkbench,
+  exportRequest,
+  parseRequestJson,
   questionIds,
   requestToRun,
+  serializeRequest,
+  setFromRequest,
   workbenchReducer,
 } from '@jev-ui/core';
 import type {
+  ExportTarget,
   HistoryStore,
   NoulQuestion,
   Question,
   Request,
   SetsStore,
+  SetSummary,
   Text as JevText,
   listModels as _listModels,
   run as _run,
@@ -26,9 +33,11 @@ import type {
 import { ResultsView } from './Results.js';
 import { StatusLine } from './StatusLine.js';
 import { Frame, QuestionsView, StateView } from './Panes.js';
-import { KEYMAP, PANES, handleKey } from './keys.js';
+import { displayWidth, padEndDisplay } from './bars.js';
+import { KEYMAP, KEY_GROUPS, PANES, handleKey } from './keys.js';
 import type { Mode, Pane } from './keys.js';
-import { ChoicePrompt, LinesPrompt, TextPrompt } from './Prompts.js';
+import { ChoicePrompt, LinesPrompt, ListPrompt, TextPrompt } from './Prompts.js';
+import type { ListItem } from './Prompts.js';
 import {
   choiceToLines,
   editableText,
@@ -43,6 +52,18 @@ const STATE_FRACTION = 0.3;
 const QUESTIONS_FRACTION = 0.3;
 const BORDER_WIDTH = 2;
 
+const SAVE_NAME_HINT = 'Use lowercase letters, digits, - or _ (must start with a letter or digit)';
+
+const EXPORT_OPTIONS: { key: string; label: string; target: ExportTarget; ext: string }[] = [
+  { key: 'c', label: 'cURL', target: 'curl', ext: 'sh' },
+  { key: 'p', label: 'Python', target: 'python', ext: 'py' },
+  { key: 't', label: 'TypeScript', target: 'typescript', ext: 'ts' },
+];
+
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export interface TuiDeps {
   run: typeof _run;
   sets: SetsStore;
@@ -50,6 +71,9 @@ export interface TuiDeps {
   keyConfigured: boolean;
   listModels: typeof _listModels;
   openEditor(text: string): Promise<string>;
+  writeFile(path: string, text: string): Promise<void>;
+  fileExists(path: string): Promise<boolean>;
+  cwd(): string;
   columns?: number;
   env?: NodeJS.ProcessEnv;
 }
@@ -84,6 +108,14 @@ type PromptSpec =
       options: { key: string; label: string }[];
       onPick: (key: string) => void;
       onCancel: () => void;
+      onCtrlC?: () => void;
+    }
+  | {
+      kind: 'list';
+      label: string;
+      items: ListItem[];
+      onPick: (key: string) => void;
+      onCancel: () => void;
     };
 
 type NoulEditStep = 'instructions' | 'yes' | 'no';
@@ -110,17 +142,38 @@ function TabStrip(props: { focused: Pane }) {
   return <Text>{text}</Text>;
 }
 
+function groupLines(groups: { heading: string; keys: string[] }[]): string[] {
+  const lines: string[] = [];
+  for (const group of groups) {
+    lines.push(group.heading);
+    for (const key of group.keys) {
+      lines.push(`  ${key}  —  ${KEYMAP[key] ?? ''}`);
+    }
+  }
+  return lines;
+}
+
+// Two columns so every KEYMAP entry fits an 80x24 terminal: the flat list
+// (title + 5 groups + 1 blank-ish line per key) runs past 24 rows in one
+// column.
+const HELP_LEFT_GROUPS = KEY_GROUPS.slice(0, 3);
+const HELP_RIGHT_GROUPS = KEY_GROUPS.slice(3);
+
 function HelpOverlay() {
+  const leftLines = groupLines(HELP_LEFT_GROUPS);
+  const rightLines = groupLines(HELP_RIGHT_GROUPS);
+  const leftWidth = leftLines.reduce((max, line) => Math.max(max, displayWidth(line)), 0);
+  const rowCount = Math.max(leftLines.length, rightLines.length);
+
   return (
     <Box flexDirection="column">
       <Text>Keys</Text>
-      {Object.entries(KEYMAP).map(([key, description]) => (
-        <Text key={key}>
-          {key}
-          {'  —  '}
-          {description}
-        </Text>
-      ))}
+      {Array.from({ length: rowCount }, (_, index) => {
+        const left = leftLines[index] ?? '';
+        const right = rightLines[index] ?? '';
+        const line = right.length > 0 ? `${padEndDisplay(left, leftWidth)}  ${right}` : left;
+        return <Text key={index}>{line}</Text>;
+      })}
     </Box>
   );
 }
@@ -154,12 +207,24 @@ function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }
       />
     );
   }
+  if (prompt.kind === 'list') {
+    return (
+      <ListPrompt
+        label={prompt.label}
+        items={prompt.items}
+        onPick={prompt.onPick}
+        onCancel={prompt.onCancel}
+        color={color}
+      />
+    );
+  }
   return (
     <ChoicePrompt
       label={prompt.label}
       options={prompt.options}
       onPick={prompt.onPick}
       onCancel={prompt.onCancel}
+      onCtrlC={prompt.onCtrlC}
     />
   );
 }
@@ -172,7 +237,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   const { deps, initial } = props;
   const [state, dispatch] = useReducer(workbenchReducer, initial, initialWorkbench);
   const { columns } = useTerminalSize({ columns: deps.columns });
-  const { exit } = useApp();
+  const { exit: appExit, suspendTerminal } = useApp();
   const [focused, setFocused] = useState<Pane>('state');
   const [mode, setMode] = useState<Mode>('normal');
   const [prompt, setPrompt] = useState<PromptSpec | undefined>(undefined);
@@ -182,6 +247,10 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   const [promptSeq, setPromptSeq] = useState(0);
   const [notice, setNotice] = useState<string | undefined>(undefined);
   const mountedRef = useRef(false);
+  // Guards o/s/e/E against overlapping: set for the whole lifetime of a
+  // flow (from keypress to its final notice/dispatch or cancellation),
+  // including any prompt it opens along the way.
+  const busyRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -456,6 +525,267 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
     });
   }
 
+  function openSet(): void {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const done = () => {
+      busyRef.current = false;
+    };
+
+    const proceed = () => {
+      void (async () => {
+        try {
+          const summaries = await deps.sets.list();
+          if (!mountedRef.current) return;
+          if (summaries.length === 0) {
+            setNotice(`No sets in ${deps.sets.dir}`);
+            done();
+            return;
+          }
+          openPrompt({
+            kind: 'list',
+            label: 'Open set',
+            items: summaries.map((summary: SetSummary) => ({
+              key: summary.name,
+              label: summary.valid
+                ? `${summary.name}  (${summary.questionCount} question${
+                    summary.questionCount === 1 ? '' : 's'
+                  })`
+                : `${summary.name}  — ${summary.error ?? 'invalid'}`,
+              disabled: !summary.valid,
+            })),
+            onPick: (name) => {
+              closePrompt();
+              void (async () => {
+                try {
+                  const set = await deps.sets.load(name);
+                  if (mountedRef.current) dispatch({ type: 'loadSet', set });
+                } catch (err) {
+                  if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+                } finally {
+                  done();
+                }
+              })();
+            },
+            onCancel: () => {
+              closePrompt();
+              done();
+            },
+          });
+        } catch (err) {
+          if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+          done();
+        }
+      })();
+    };
+
+    if (state.dirty) {
+      openPrompt({
+        kind: 'choice',
+        label: 'Discard unsaved changes?',
+        options: [
+          { key: 'y', label: 'Yes' },
+          { key: 'n', label: 'No' },
+        ],
+        onPick: (key) => {
+          closePrompt();
+          if (key === 'y') proceed();
+          else done();
+        },
+        onCancel: () => {
+          closePrompt();
+          done();
+        },
+      });
+      return;
+    }
+    proceed();
+  }
+
+  function save(forcePrompt: boolean): void {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const done = () => {
+      busyRef.current = false;
+    };
+
+    const doSave = (name: string) => {
+      void (async () => {
+        try {
+          await deps.sets.save(name, setFromRequest(name, state.request));
+          if (mountedRef.current) {
+            dispatch({ type: 'saved', name });
+            setNotice(`Saved ${name}`);
+          }
+        } catch (err) {
+          if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+        } finally {
+          done();
+        }
+      })();
+    };
+
+    if (!forcePrompt && state.setName) {
+      doSave(state.setName);
+      return;
+    }
+
+    openPrompt({
+      kind: 'text',
+      label: 'Save as',
+      initial: state.setName ?? '',
+      validate: (value) => (SET_NAME_RE.test(value.trim()) ? undefined : SAVE_NAME_HINT),
+      onSubmit: (value) => {
+        closePrompt();
+        doSave(value.trim());
+      },
+      onCancel: () => {
+        closePrompt();
+        done();
+      },
+    });
+  }
+
+  function exportFlow(): void {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const done = () => {
+      busyRef.current = false;
+    };
+
+    openPrompt({
+      kind: 'choice',
+      label: 'Export as',
+      options: EXPORT_OPTIONS.map((option) => ({ key: option.key, label: option.label })),
+      onPick: (key) => {
+        closePrompt();
+        const option = EXPORT_OPTIONS.find((o) => o.key === key);
+        if (!option) {
+          done();
+          return;
+        }
+        const fileName = `${state.setName ?? 'request'}.${option.ext}`;
+        const filePath = `${deps.cwd()}/${fileName}`;
+
+        const write = () => {
+          void (async () => {
+            try {
+              const content = exportRequest(option.target, state.request);
+              await deps.writeFile(filePath, content);
+              if (mountedRef.current) setNotice(`Wrote ${fileName}`);
+            } catch (err) {
+              if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+            } finally {
+              done();
+            }
+          })();
+        };
+
+        void (async () => {
+          try {
+            const exists = await deps.fileExists(filePath);
+            if (!mountedRef.current) {
+              done();
+              return;
+            }
+            if (exists) {
+              openPrompt({
+                kind: 'choice',
+                label: `Overwrite ${fileName}?`,
+                options: [
+                  { key: 'y', label: 'Yes' },
+                  { key: 'n', label: 'No' },
+                ],
+                onPick: (overwriteKey) => {
+                  closePrompt();
+                  if (overwriteKey === 'y') write();
+                  else done();
+                },
+                onCancel: () => {
+                  closePrompt();
+                  done();
+                },
+              });
+            } else {
+              write();
+            }
+          } catch (err) {
+            if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+            done();
+          }
+        })();
+      },
+      onCancel: () => {
+        closePrompt();
+        done();
+      },
+    });
+  }
+
+  function editInEditor(): void {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const done = () => {
+      busyRef.current = false;
+    };
+
+    const text = serializeRequest(state.request);
+    let result = text;
+    void (async () => {
+      try {
+        await suspendTerminal(async () => {
+          result = await deps.openEditor(text);
+        });
+        if (!mountedRef.current) {
+          done();
+          return;
+        }
+        if (result === text) {
+          setNotice('No changes');
+          done();
+          return;
+        }
+        const parsed = parseRequestJson(result);
+        if (!parsed.ok) {
+          const location = parsed.line !== undefined ? `line ${parsed.line}: ` : '';
+          setNotice(`✕ ${location}${parsed.message}`);
+          done();
+          return;
+        }
+        dispatch({ type: 'replaceRequest', request: parsed.request });
+        setNotice('Request updated');
+      } catch (err) {
+        if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
+      } finally {
+        done();
+      }
+    })();
+  }
+
+  function quitFlow(): void {
+    if (!state.dirty) {
+      appExit();
+      return;
+    }
+    openPrompt({
+      kind: 'choice',
+      label: 'Quit without saving?',
+      options: [
+        { key: 'y', label: 'Yes' },
+        { key: 'n', label: 'No' },
+      ],
+      onPick: (key) => {
+        if (key === 'y') {
+          appExit();
+          return;
+        }
+        closePrompt();
+      },
+      onCancel: closePrompt,
+      onCtrlC: appExit,
+    });
+  }
+
   useInput(
     (input, key) => {
       setNotice(undefined);
@@ -468,7 +798,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
         selectedId: state.selectedId,
         select: (id) => dispatch({ type: 'select', id }),
         runRequested,
-        exit,
+        exit: quitFlow,
         addQuestion,
         deleteQuestion,
         duplicateQuestion,
@@ -477,6 +807,10 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
         renameSelected,
         editState,
         editModel,
+        openSet,
+        save,
+        exportFlow,
+        editInEditor,
       });
     },
     { isActive: mode !== 'prompt' },
@@ -566,7 +900,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       {errorLine && <Text color={isError && color ? 'red' : undefined}>{errorLine}</Text>}
       <StatusLine result={state.result} keyConfigured={deps.keyConfigured} />
       <Text dimColor={color}>
-        Tab panes · ↑↓ select · r run · a add · d/D del/dup · ? help · q quit
+        Tab panes · ↑↓ select · r run · a add · o open · s save · e export · ? help · q quit
       </Text>
     </Box>
   );

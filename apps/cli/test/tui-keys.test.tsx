@@ -71,6 +71,9 @@ function makeDeps(overrides: Partial<TuiDeps> = {}): TuiDeps {
     history: fakeHistory(),
     keyConfigured: true,
     openEditor: vi.fn(async () => ''),
+    writeFile: vi.fn(async () => undefined),
+    fileExists: vi.fn(async () => false),
+    cwd: vi.fn(() => '/cwd'),
     ...overrides,
   };
 }

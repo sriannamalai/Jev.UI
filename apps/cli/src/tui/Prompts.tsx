@@ -273,10 +273,19 @@ export function ChoicePrompt(props: {
   options: { key: string; label: string }[];
   onPick: (key: string) => void;
   onCancel: () => void;
+  /** Only the quit-confirmation prompt wires this: a second Ctrl+C while
+   * it's open force-quits, rather than being swallowed like any other
+   * unmatched key. Every other `ChoicePrompt` use (add-question type,
+   * export target, overwrite confirm) leaves it undefined. */
+  onCtrlC?: () => void;
 }) {
-  const { label, options, onPick, onCancel } = props;
+  const { label, options, onPick, onCancel, onCtrlC } = props;
 
   useInput((input, key) => {
+    if (key.ctrl && input === 'c') {
+      onCtrlC?.();
+      return;
+    }
     if (key.escape) {
       onCancel();
       return;
@@ -291,6 +300,62 @@ export function ChoicePrompt(props: {
       {options.map((option) => (
         <Text key={option.key}>{`${option.key}  ${option.label}`}</Text>
       ))}
+    </Box>
+  );
+}
+
+export interface ListItem {
+  key: string;
+  label: string;
+  disabled?: boolean;
+}
+
+/** A picker for `o` (open set): ↑/↓ or j/k move, Enter picks the selected
+ * item (a no-op on a `disabled` one — invalid sets can't be opened), Esc
+ * cancels. The caller supplies `items` already formatted (label text,
+ * disabled flag) since only it knows what "invalid" means for its rows. */
+export function ListPrompt(props: {
+  label: string;
+  items: ListItem[];
+  onPick: (key: string) => void;
+  onCancel: () => void;
+  color?: boolean;
+}) {
+  const { label, items, onPick, onCancel, color = true } = props;
+  const [index, setIndex] = useState(0);
+
+  useInput((input, key) => {
+    if (key.escape) {
+      onCancel();
+      return;
+    }
+    if (key.upArrow || input === 'k') {
+      setIndex((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (key.downArrow || input === 'j') {
+      setIndex((i) => Math.min(items.length - 1, i + 1));
+      return;
+    }
+    if (key.return) {
+      const item = items[index];
+      if (item && !item.disabled) onPick(item.key);
+    }
+  });
+
+  return (
+    <Box flexDirection="column">
+      <Text>{label}</Text>
+      {items.map((item, i) => {
+        const pointer = i === index ? '▸ ' : '  ';
+        const text = `${pointer}${item.label}`;
+        return (
+          <Text key={item.key} dimColor={item.disabled && color} inverse={i === index}>
+            {text}
+          </Text>
+        );
+      })}
+      <Text dimColor>↑↓/j k move · Enter pick · Esc cancel</Text>
     </Box>
   );
 }

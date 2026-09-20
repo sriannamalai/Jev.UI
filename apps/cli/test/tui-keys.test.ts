@@ -48,6 +48,10 @@ function makeCtx(overrides: Partial<KeyContext> = {}): KeyContext {
     renameSelected: vi.fn(),
     editState: vi.fn(),
     editModel: vi.fn(),
+    openSet: vi.fn(),
+    save: vi.fn(),
+    exportFlow: vi.fn(),
+    editInEditor: vi.fn(),
     ...overrides,
   };
 }
@@ -202,6 +206,32 @@ describe('handleKey', () => {
     expect(ctx.moveQuestion).toHaveBeenCalledWith(1);
     handleKey('K', key(), ctx);
     expect(ctx.moveQuestion).toHaveBeenCalledWith(-1);
+  });
+
+  it('opens a set on o', () => {
+    const ctx = makeCtx();
+    handleKey('o', key(), ctx);
+    expect(ctx.openSet).toHaveBeenCalledOnce();
+  });
+
+  it('saves without forcing a prompt on s, forces one on S', () => {
+    const ctx = makeCtx();
+    handleKey('s', key(), ctx);
+    expect(ctx.save).toHaveBeenCalledWith(false);
+    handleKey('S', key(), ctx);
+    expect(ctx.save).toHaveBeenCalledWith(true);
+  });
+
+  it('exports on e', () => {
+    const ctx = makeCtx();
+    handleKey('e', key(), ctx);
+    expect(ctx.exportFlow).toHaveBeenCalledOnce();
+  });
+
+  it('edits the full request in $EDITOR on E', () => {
+    const ctx = makeCtx();
+    handleKey('E', key(), ctx);
+    expect(ctx.editInEditor).toHaveBeenCalledOnce();
   });
 });
 
