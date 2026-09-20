@@ -85,6 +85,15 @@ test('creates the history directory and file with restrictive permissions', asyn
   expect(fileStat.mode & 0o777).toBe(0o600);
 });
 
+test('tightens an existing history file to mode 0o600 after appending', async () => {
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  await fs.writeFile(file, '', { mode: 0o644 });
+  const history = createHistory(file);
+  await history.append(record(1));
+  const fileStat = await fs.stat(file);
+  expect(fileStat.mode & 0o777).toBe(0o600);
+});
+
 test('defaultHistoryFile uses XDG_DATA_HOME when set', () => {
   expect(defaultHistoryFile({ XDG_DATA_HOME: '/xdg' }, '/home/u')).toBe(
     path.join('/xdg', 'jev-ui', 'history.jsonl'),

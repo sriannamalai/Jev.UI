@@ -40,6 +40,10 @@ async function append(file: string, record: HistoryRecord): Promise<void> {
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
     const line = `${JSON.stringify(record)}\n`;
     await fs.appendFile(file, line, { encoding: 'utf8', mode: 0o600, flag: 'a' });
+    const stat = await fs.stat(file);
+    if (stat.mode & 0o077) {
+      await fs.chmod(file, 0o600);
+    }
   } catch (err) {
     console.warn('jev-ui: failed to append history record', err);
   }

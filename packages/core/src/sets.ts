@@ -1,4 +1,5 @@
-import { promises as fs } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { promises as fs, type Dirent } from 'node:fs';
 import * as nodePath from 'node:path';
 import type { ZodError } from 'zod';
 import { formatPath } from './json.js';
@@ -49,17 +50,17 @@ export function createSets(dir: string): SetsStore {
 }
 
 async function list(dir: string): Promise<SetSummary[]> {
-  let entries: string[];
+  let entries: Dirent[];
   try {
-    entries = await fs.readdir(dir);
+    entries = await fs.readdir(dir, { withFileTypes: true });
   } catch (err) {
     if (isEnoent(err)) return [];
     throw err;
   }
 
   const names = entries
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => f.slice(0, -'.json'.length))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name.slice(0, -'.json'.length))
     .filter((name) => SET_NAME_RE.test(name))
     .sort();
 
@@ -102,6 +103,19 @@ async function load(dir: string, name: string): Promise<QuestionSet> {
   }
 
   const file = nodePath.join(dir, `${name}.json`);
+  try {
+    const stat = await fs.lstat(file);
+    if (!stat.isFile()) {
+      throw new SetError('notFound', `Question set not found: ${file}`, { file });
+    }
+  } catch (err) {
+    if (err instanceof SetError) throw err;
+    if (isEnoent(err)) {
+      throw new SetError('notFound', `Question set not found: ${file}`, { file });
+    }
+    throw err;
+  }
+
   let text: string;
   try {
     text = await fs.readFile(file, 'utf8');
@@ -147,7 +161,7 @@ async function save(dir: string, name: string, set: QuestionSet): Promise<void> 
 
   await fs.mkdir(dir, { recursive: true });
   const file = nodePath.join(dir, `${name}.json`);
-  const tmp = nodePath.join(dir, `${name}.json.tmp-${process.pid}`);
+  const tmp = nodePath.join(dir, `${name}.json.tmp-${process.pid}-${randomUUID()}`);
   try {
     await fs.writeFile(tmp, `${JSON.stringify(result.data, null, 2)}\n`, 'utf8');
     await fs.rename(tmp, file);
