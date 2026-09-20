@@ -1,6 +1,13 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { ChoicePrompt, LinesPrompt, TextPrompt } from '../src/tui/Prompts.js';
+import { displayWidth } from '../src/tui/bars.js';
+
+function stripAnsi(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, '');
+}
+
+const FAMILY = '\u{1F469}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
 
 async function tick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -101,6 +108,66 @@ describe('TextPrompt', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(lastFrame() ?? '').toContain('nope, try again');
   });
+
+  it('moves the cursor by grapheme, not by code unit', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(<TextPrompt label="X" onSubmit={onSubmit} onCancel={vi.fn()} />);
+    stdin.write('日本語');
+    await tick();
+    stdin.write('\u001B[D'); // left arrow
+    await tick();
+    stdin.write('x');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('日本x語');
+  });
+
+  it('backspace deletes a whole grapheme cluster', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(<TextPrompt label="X" onSubmit={onSubmit} onCancel={vi.fn()} />);
+    stdin.write(`a${FAMILY}`);
+    await tick();
+    stdin.write('\u007f'); // backspace
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('a');
+  });
+
+  it('keeps every rendered line within the given display width, cursor visible', async () => {
+    // 30 display columns, with a distinctive grapheme at each end.
+    const value = `始${'日'.repeat(13)}端`;
+    const { lastFrame, stdin } = render(
+      <TextPrompt label="X" initial={value} width={20} onSubmit={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await tick();
+    const widthsFit = () => {
+      for (const line of stripAnsi(lastFrame() ?? '').split('\n')) {
+        expect(displayWidth(line)).toBeLessThanOrEqual(20);
+      }
+    };
+
+    // The cursor starts at the end, so the window is scrolled to the tail.
+    widthsFit();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('端');
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('始');
+
+    stdin.write('\u0001'); // Ctrl+A -> Home
+    await tick();
+    widthsFit();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('始');
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('端');
+  });
+
+  it('renders a cursor marker without color', async () => {
+    const { lastFrame } = render(
+      <TextPrompt label="X" initial="abc" color={false} onSubmit={vi.fn()} onCancel={vi.fn()} />,
+    );
+    await tick();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('abc▏');
+  });
+
 });
 
 describe('LinesPrompt', () => {
@@ -189,6 +256,59 @@ describe('LinesPrompt', () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(lastFrame() ?? '').toContain('duplicate key');
   });
+
+  it('moves and deletes by grapheme on the cursor row', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(
+      <LinesPrompt label="L" initial={[]} onSubmit={onSubmit} onCancel={vi.fn()} />,
+    );
+    stdin.write(`日本語${FAMILY}`);
+    await tick();
+    stdin.write('\u007f'); // backspace removes the whole family cluster
+    await tick();
+    stdin.write('\u001B[D'); // left arrow
+    await tick();
+    stdin.write('x');
+    await tick();
+    stdin.write('\u0013'); // Ctrl+S
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(['日本x語']);
+  });
+
+  it('keeps the cursor row within the given display width, cursor visible', async () => {
+    const value = `始${'日'.repeat(13)}端`; // 30 display columns
+    const { lastFrame, stdin } = render(
+      <LinesPrompt
+        label="L"
+        initial={[value, value]}
+        width={20}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    await tick();
+    const widthsFit = () => {
+      for (const line of stripAnsi(lastFrame() ?? '').split('\n')) {
+        expect(displayWidth(line)).toBeLessThanOrEqual(20);
+      }
+    };
+
+    // Row 0 holds the cursor (at the end of the line) and scrolls; row 1 is
+    // truncated with an ellipsis.
+    widthsFit();
+    let rows = stripAnsi(lastFrame() ?? '').split('\n');
+    expect(rows[1]).toContain('端');
+    expect(rows[1]).not.toContain('…');
+    expect(rows[2]).toContain('…');
+
+    stdin.write('\u001B[D'.repeat(14)); // left to the first grapheme
+    await tick();
+    widthsFit();
+    rows = stripAnsi(lastFrame() ?? '').split('\n');
+    expect(rows[1]).toContain('始');
+    expect(rows[1]).not.toContain('端');
+  });
+
 });
 
 describe('ChoicePrompt', () => {

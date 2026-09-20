@@ -4,29 +4,63 @@
 // one place and is exercised the same way `handleKey` is.
 import { useState } from 'react';
 import { Box, Text, useInput } from 'ink';
-import { truncate } from './bars.js';
+import { displayWidth, truncate } from './bars.js';
 
 const DEFAULT_WIDTH = 60;
 
-function clampCursor(value: string, cursor: number): number {
-  return Math.max(0, Math.min(value.length, cursor));
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** `value` split into grapheme clusters. Cursor positions are indices into
+ * this array — never UTF-16 offsets — so ←/→/Backspace/Delete can never cut
+ * a surrogate pair or a ZWJ sequence (a family emoji) in half. */
+function graphemes(value: string): string[] {
+  return Array.from(segmenter.segment(value), (entry) => entry.segment);
 }
 
-/** The slice of `value` (and the cursor's position within it) that fits in
- * `width` columns while keeping the cursor visible, scrolling horizontally
- * when the text is longer than the available width. */
-function visibleWindow(
-  value: string,
-  cursor: number,
-  width: number,
-): { text: string; cursorIndex: number } {
+function clampCursor(cells: string[], cursor: number): number {
+  return Math.max(0, Math.min(cells.length, cursor));
+}
+
+interface CursorWindow {
+  before: string;
+  atCursor: string;
+  after: string;
+}
+
+/** The slice of `cells` that fits `width` DISPLAY columns (not code units)
+ * while keeping the cursor visible, scrolling horizontally when the text is
+ * wider than the available room. The cursor sits on its own cell — the
+ * grapheme it is over, or a trailing space at the end of the value — and
+ * that cell's width is part of the budget, so the exact-fit case is handled
+ * by the accounting rather than by an off-by-one comparison. */
+function visibleWindow(cells: string[], cursor: number, width: number): CursorWindow {
   const room = Math.max(1, width);
-  if (value.length < room) {
-    return { text: value, cursorIndex: cursor };
+  const count = cells.length;
+  const index = clampCursor(cells, cursor);
+  const atCursor = index < count ? cells[index]! : ' ';
+
+  let total = Math.max(1, displayWidth(atCursor));
+  let start = index;
+  let end = Math.min(index + 1, count);
+
+  while (start > 0) {
+    const cellWidth = displayWidth(cells[start - 1]!);
+    if (total + cellWidth > room) break;
+    total += cellWidth;
+    start -= 1;
   }
-  let start = Math.max(0, cursor - room + 1);
-  start = Math.min(start, Math.max(0, value.length - room));
-  return { text: value.slice(start, start + room), cursorIndex: cursor - start };
+  while (end < count) {
+    const cellWidth = displayWidth(cells[end]!);
+    if (total + cellWidth > room) break;
+    total += cellWidth;
+    end += 1;
+  }
+
+  return {
+    before: cells.slice(start, index).join(''),
+    atCursor,
+    after: cells.slice(Math.min(index + 1, count), end).join(''),
+  };
 }
 
 export function TextPrompt(props: {
@@ -53,7 +87,7 @@ export function TextPrompt(props: {
     onCtrlC,
   } = props;
   const [value, setValue] = useState(initial);
-  const [cursor, setCursor] = useState(initial.length);
+  const [cursor, setCursor] = useState(() => graphemes(initial).length);
   const [error, setError] = useState<string | undefined>(undefined);
 
   useInput((input, key) => {
@@ -76,13 +110,18 @@ export function TextPrompt(props: {
     }
 
     setError(undefined);
+    const cells = graphemes(value);
+    const at = clampCursor(cells, cursor);
 
+    // Several arrow keys can arrive in one chunk, so cursor moves are
+    // functional updates: computing from the captured `cursor` would apply
+    // only the last of them.
     if (key.leftArrow) {
-      setCursor((c) => clampCursor(value, c - 1));
+      setCursor((c) => clampCursor(cells, clampCursor(cells, c) - 1));
       return;
     }
     if (key.rightArrow) {
-      setCursor((c) => clampCursor(value, c + 1));
+      setCursor((c) => clampCursor(cells, clampCursor(cells, c) + 1));
       return;
     }
     if (key.home || (key.ctrl && input === 'a')) {
@@ -90,30 +129,28 @@ export function TextPrompt(props: {
       return;
     }
     if (key.end || (key.ctrl && input === 'e')) {
-      setCursor(value.length);
+      setCursor(cells.length);
       return;
     }
     if (key.backspace) {
-      if (cursor === 0) return;
-      setValue(value.slice(0, cursor - 1) + value.slice(cursor));
-      setCursor(cursor - 1);
+      if (at === 0) return;
+      setValue(cells.slice(0, at - 1).join('') + cells.slice(at).join(''));
+      setCursor(at - 1);
       return;
     }
     if (key.delete) {
-      setValue(value.slice(0, cursor) + value.slice(cursor + 1));
+      setValue(cells.slice(0, at).join('') + cells.slice(at + 1).join(''));
       return;
     }
     if (key.ctrl || key.meta || input.length === 0) return;
 
-    setValue(value.slice(0, cursor) + input + value.slice(cursor));
-    setCursor(cursor + input.length);
+    setValue(cells.slice(0, at).join('') + input + cells.slice(at).join(''));
+    setCursor(at + graphemes(input).length);
   });
 
-  const room = Math.max(1, width - label.length - 2);
-  const { text, cursorIndex } = visibleWindow(value, cursor, room);
-  const before = text.slice(0, cursorIndex);
-  const atCursor = cursorIndex < text.length ? text[cursorIndex] : ' ';
-  const after = cursorIndex < text.length ? text.slice(cursorIndex + 1) : '';
+  // The label is measured in display columns too ("状態: " is 6 wide, not 4).
+  const room = Math.max(1, width - displayWidth(label) - 2);
+  const { before, atCursor, after } = visibleWindow(graphemes(value), cursor, room);
 
   return (
     <Box flexDirection="column">
@@ -129,8 +166,10 @@ export function TextPrompt(props: {
         )}
         <Text>{after}</Text>
       </Box>
-      {error !== undefined && <Text color={color ? 'red' : undefined}>{error}</Text>}
-      <Text dimColor>Enter save · Esc cancel</Text>
+      {error !== undefined && (
+        <Text color={color ? 'red' : undefined}>{truncate(error, Math.max(1, width))}</Text>
+      )}
+      <Text dimColor>{truncate('Enter save · Esc cancel', Math.max(1, width))}</Text>
     </Box>
   );
 }
@@ -170,7 +209,7 @@ export function LinesPrompt(props: {
   const initialLines = initial.length > 0 ? initial : [''];
   const [lines, setLines] = useState<string[]>(initialLines);
   const [row, setRow] = useState(0);
-  const [col, setCol] = useState((initialLines[0] ?? '').length);
+  const [col, setCol] = useState(() => graphemes(initialLines[0] ?? '').length);
   const [error, setError] = useState<string | undefined>(undefined);
 
   useInput((input, key) => {
@@ -195,32 +234,35 @@ export function LinesPrompt(props: {
 
     setError(undefined);
     const current = lines[row] ?? '';
+    const cells = graphemes(current);
+    const at = clampCursor(cells, col);
 
     if (key.upArrow) {
       if (row === 0) return;
       const nextRow = row - 1;
       setRow(nextRow);
-      setCol((c) => Math.min(c, (lines[nextRow] ?? '').length));
+      setCol((c) => Math.min(c, graphemes(lines[nextRow] ?? '').length));
       return;
     }
     if (key.downArrow) {
       if (row === lines.length - 1) return;
       const nextRow = row + 1;
       setRow(nextRow);
-      setCol((c) => Math.min(c, (lines[nextRow] ?? '').length));
+      setCol((c) => Math.min(c, graphemes(lines[nextRow] ?? '').length));
       return;
     }
+    // See TextPrompt: a chunk can carry several arrow keys.
     if (key.leftArrow) {
-      setCol((c) => Math.max(0, c - 1));
+      setCol((c) => Math.max(0, clampCursor(cells, c) - 1));
       return;
     }
     if (key.rightArrow) {
-      setCol((c) => Math.min(current.length, c + 1));
+      setCol((c) => Math.min(cells.length, clampCursor(cells, c) + 1));
       return;
     }
     if (key.return) {
-      const before = current.slice(0, col);
-      const after = current.slice(col);
+      const before = cells.slice(0, at).join('');
+      const after = cells.slice(at).join('');
       const next = [...lines];
       next.splice(row, 1, before, after);
       setLines(next);
@@ -229,11 +271,11 @@ export function LinesPrompt(props: {
       return;
     }
     if (key.backspace) {
-      if (col > 0) {
+      if (at > 0) {
         const next = [...lines];
-        next[row] = current.slice(0, col - 1) + current.slice(col);
+        next[row] = cells.slice(0, at - 1).join('') + cells.slice(at).join('');
         setLines(next);
-        setCol(col - 1);
+        setCol(at - 1);
         return;
       }
       if (row > 0) {
@@ -242,22 +284,22 @@ export function LinesPrompt(props: {
         next.splice(row - 1, 2, prev + current);
         setLines(next);
         setRow(row - 1);
-        setCol(prev.length);
+        setCol(graphemes(prev).length);
       }
       return;
     }
     if (key.delete) {
       const next = [...lines];
-      next[row] = current.slice(0, col) + current.slice(col + 1);
+      next[row] = cells.slice(0, at).join('') + cells.slice(at + 1).join('');
       setLines(next);
       return;
     }
     if (key.ctrl || key.meta || input.length === 0) return;
 
     const next = [...lines];
-    next[row] = current.slice(0, col) + input + current.slice(col);
+    next[row] = cells.slice(0, at).join('') + input + cells.slice(at).join('');
     setLines(next);
-    setCol(col + input.length);
+    setCol(at + graphemes(input).length);
   });
 
   return (
@@ -269,9 +311,9 @@ export function LinesPrompt(props: {
             <Text key={index}>{truncate(line.length > 0 ? line : ' ', Math.max(1, width))}</Text>
           );
         }
-        const before = line.slice(0, col);
-        const atCursor = col < line.length ? line[col] : ' ';
-        const after = col < line.length ? line.slice(col + 1) : '';
+        // The cursor row scrolls with the cursor instead of being truncated,
+        // but obeys the same display-width bound as the rows around it.
+        const { before, atCursor, after } = visibleWindow(graphemes(line), col, width);
         return (
           <Box key={index}>
             <Text>{before}</Text>
@@ -280,8 +322,12 @@ export function LinesPrompt(props: {
           </Box>
         );
       })}
-      {error !== undefined && <Text color={color ? 'red' : undefined}>{error}</Text>}
-      <Text dimColor>{hint ?? 'Ctrl+S save · Esc cancel'}</Text>
+      {error !== undefined && (
+        <Text color={color ? 'red' : undefined}>{truncate(error, Math.max(1, width))}</Text>
+      )}
+      <Text dimColor>
+        {truncate(hint ?? 'Ctrl+S save · Esc cancel', Math.max(1, width))}
+      </Text>
     </Box>
   );
 }
