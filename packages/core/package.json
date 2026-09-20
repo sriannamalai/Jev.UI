@@ -20,6 +20,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "tsup": "catalog:",
     "typescript": "catalog:",
