@@ -26,3 +26,4 @@ export { SaveButton, NAME_ERROR } from './SaveButton.js';
 export { ExportMenu } from './ExportMenu.js';
 export { ThemeToggle } from './ThemeToggle.js';
 export { RunButton } from './RunButton.js';
+export { Workbench } from './Workbench.js';

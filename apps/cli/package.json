@@ -9,7 +9,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsup",
+    "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsup && node scripts/copy-web.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -20,6 +20,7 @@
     "open": "^11.0.4"
   },
   "devDependencies": {
+    "@jev-ui/web": "workspace:*",
     "@types/node": "catalog:",
     "jsdom": "catalog:",
     "tsup": "catalog:",

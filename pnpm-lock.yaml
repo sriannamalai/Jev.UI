@@ -81,6 +81,9 @@ importers:
         specifier: ^11.0.4
         version: 11.0.4
     devDependencies:
+      '@jev-ui/web':
+        specifier: workspace:*
+        version: link:../web
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.2

@@ -1,12 +1,15 @@
 // The application's top bar (spec §8): set/model pickers, the Form/Split/
 // JSON mode toggle, Save, Export code, the theme toggle, the API-key
-// indicator, and Run. `api` defaults to the real client but can be injected
-// (tests inject the same fake given to `WorkbenchProvider`).
+// indicator, and Run. Every action that needs the API (running, saving,
+// loading a set) goes through `useWorkbench()`, which is already bound to
+// whatever `api` the enclosing `WorkbenchProvider` was given. `serverInfo` is
+// owned by the caller (the shell fetches `/api/health` etc. exactly once and
+// hands the result down) rather than fetched here, so mounting `TopBar`
+// never triggers its own, second round of requests.
 import { useState } from 'react';
 import { DEFAULT_MODEL } from '@jev-ui/core/browser';
-import { api as defaultApi, type createApi } from '../api.js';
 import { useWorkbench } from '../store.js';
-import { useServerInfo } from '../hooks/useServerInfo.js';
+import type { ServerInfo } from '../hooks/useServerInfo.js';
 import { SetPicker } from './SetPicker.js';
 import { ModelPicker } from './ModelPicker.js';
 import { ModeToggle } from './ModeToggle.js';
@@ -15,12 +18,9 @@ import { ExportMenu } from './ExportMenu.js';
 import { ThemeToggle } from './ThemeToggle.js';
 import { RunButton } from './RunButton.js';
 
-type Api = ReturnType<typeof createApi>;
-
-export function TopBar(props: { api?: Api }) {
-  const api = props.api ?? defaultApi;
+export function TopBar(props: { serverInfo: ServerInfo }) {
   const { state, dispatch, load } = useWorkbench();
-  const { health, models, sets, refreshSets } = useServerInfo(api);
+  const { health, models, sets, refreshSets } = props.serverInfo;
   const [loadError, setLoadError] = useState<string | undefined>(undefined);
 
   async function handleLoad(name: string) {

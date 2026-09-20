@@ -4,6 +4,7 @@ import { newRequest, toCurl, toPython, type QuestionSet } from '@jev-ui/core/bro
 import { createApi } from '../src/api.js';
 import { WorkbenchProvider, useWorkbench } from '../src/store.js';
 import { TopBar } from '../src/components/index.js';
+import { useServerInfo } from '../src/hooks/useServerInfo.js';
 
 type Api = ReturnType<typeof createApi>;
 
@@ -31,11 +32,20 @@ function makeApi(overrides: Partial<Api> = {}): Api {
   };
 }
 
+// `TopBar` no longer fetches health/models/sets itself (the shell owns that
+// single fetch and passes it down) — this small wrapper reproduces the old
+// "TopBar fetches its own server info" test setup without changing any
+// individual test body.
+function ServerInfoTopBar(props: { api: Api }) {
+  const serverInfo = useServerInfo(props.api);
+  return <TopBar serverInfo={serverInfo} />;
+}
+
 function renderBar(api: Api, extra?: React.ReactNode) {
   return render(
     <WorkbenchProvider api={api}>
       {extra}
-      <TopBar api={api} />
+      <ServerInfoTopBar api={api} />
     </WorkbenchProvider>,
   );
 }

@@ -882,3 +882,85 @@ legend {
   padding: 8px;
   font-size: 12px;
 }
+
+/* page shell + column layout */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1.15fr)
+    minmax(0, 1fr)
+    minmax(0, 0.95fr);
+}
+
+/* Build and Request JSON are unmounted (not hidden) outside Split mode, so
+   Form/JSON mode only ever have two grid children — Build+Results, or
+   JSON+Results respectively. */
+main[data-mode='form'] {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+main[data-mode='json'] {
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+}
+
+.col {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border-right: 1px solid var(--line);
+}
+
+.col:last-child {
+  border-right: 0;
+  background: var(--panel);
+}
+
+.col-form,
+.col-json {
+  background: var(--bg);
+}
+
+/* narrow-viewport tab switcher (Split mode only) */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.tabs [role='tab'] {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 9px 12px;
+  color: var(--ink-2);
+  border-bottom: 2px solid transparent;
+}
+
+.tabs [role='tab'][aria-selected='true'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+[role='tabpanel'] {
+  display: contents;
+}
+
+@media (max-width: 899px) {
+  main[data-mode] {
+    grid-template-columns: 1fr;
+  }
+
+  .col {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+}
