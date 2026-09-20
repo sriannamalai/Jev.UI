@@ -142,7 +142,11 @@ async function load(dir: string, name: string): Promise<QuestionSet> {
     const { message, path } = describeInvalid(file, result.error);
     throw new SetError('invalid', message, { file, path });
   }
-  return result.data;
+  // The file name is the set's identity (it is what `list`/`load`/`save`
+  // address it by, and the only part validated against SET_NAME_RE). A body
+  // `name` is free-form text that callers must never treat as a path
+  // component, so it is overwritten here exactly as `save` does.
+  return { ...result.data, name };
 }
 
 async function save(dir: string, name: string, set: QuestionSet): Promise<void> {

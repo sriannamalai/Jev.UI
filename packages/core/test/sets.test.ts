@@ -38,6 +38,31 @@ test('save rejects a bad name and writes nothing outside the dir', async () => {
   expect(await fs.readdir(dir)).toEqual([]);
 });
 
+test('load names the set after the file, never after the body', async () => {
+  await fs.writeFile(
+    path.join(dir, 'triage.json'),
+    JSON.stringify({
+      name: '../../evil',
+      questions: { q: { type: 'noul', instructions: 'x' } },
+    }),
+  );
+  const sets = createSets(dir);
+  const loaded = await sets.load('triage');
+  expect(loaded.name).toBe('triage');
+});
+
+test('list names entries after the file, never after the body', async () => {
+  await fs.writeFile(
+    path.join(dir, 'triage.json'),
+    JSON.stringify({
+      name: '../../evil',
+      questions: { q: { type: 'noul', instructions: 'x' } },
+    }),
+  );
+  const sets = createSets(dir);
+  expect(await sets.list()).toEqual([{ name: 'triage', questionCount: 1, valid: true }]);
+});
+
 test('load reports notFound for a missing set', async () => {
   const sets = createSets(dir);
   await expect(sets.load('missing')).rejects.toMatchObject({ code: 'notFound' });
