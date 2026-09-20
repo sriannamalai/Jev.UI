@@ -38,11 +38,14 @@ Run the CLI straight from the checkout:
 node apps/cli/dist/bin.js --help
 ```
 
-Or link it onto your `PATH` as `jev`:
+Or set up a shell alias so you can type `jev` instead, run from the repository root:
 
 ```sh
-pnpm --filter jev-ui link --global
+alias jev="node $(pwd)/apps/cli/dist/bin.js"
 ```
+
+The rest of this README uses `jev` in its examples — that always means this alias (or, if you
+skipped it, the explicit `node apps/cli/dist/bin.js` form).
 
 ## Quick start
 
@@ -66,7 +69,7 @@ Launches the interactive TUI in your terminal.
 ### `jev ask` — one-shot from the command line
 
 ```sh
-echo "Hi, I've been trying to connect my Stripe account…" | jev ask support-triage
+echo "Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP." | jev ask support-triage
 ```
 
 Loads the `support-triage` question set from the sets directory, sends the piped text as state,
@@ -81,6 +84,11 @@ and prints a readable result. Useful flags:
 | `0`       | Success                                                                              |
 | `1`       | The request reached the API but failed (auth, validation, rate limit, timeout, etc.) |
 | `2`       | Usage error — bad arguments, missing state, no API key, or an invalid question set   |
+
+A 400 response from the API (for example, a question with neither `instructions` nor `criteria`)
+currently surfaces as a generic validation error rather than the upstream message, when that
+response's `detail` field is a plain string rather than the structured shape Jev.UI knows how to
+unwrap.
 
 ## The web workbench
 
@@ -97,32 +105,64 @@ cleared, so you can compare the old answer against your change. Run with the but
 ⌘/Ctrl+Enter. Export turns the current request into a cURL command, a Python script, or a
 TypeScript snippet. A theme toggle switches between light and dark.
 
+The Save button saves under the current set's name once one is loaded. Saving under a new name
+from the web workbench only works before a set has been loaded (or been saved once); once a set
+has a name, saving under a different name is currently only available in the terminal UI (`S`,
+save as).
+
 ## The terminal UI
 
 At 120 columns or wider the TUI shows three panes side by side — state, questions, results — with
 tabs to switch between them below that width.
 
-| Key         | Action                                       |
-| ----------- | -------------------------------------------- |
-| Tab         | cycle panes                                  |
-| 1 / 2 / 3   | jump to a pane                               |
-| ↑ / ↓ (k/j) | move selection                               |
-| r           | run                                          |
-| a           | add question                                 |
-| d           | delete question                              |
-| D           | duplicate question                           |
-| J / K       | move question down / up                      |
-| Enter       | edit selected question                       |
-| n           | rename selected question                     |
-| i           | edit state (single line)                     |
-| m           | set model                                    |
-| o           | open a question set                          |
-| s           | save                                         |
-| e           | export (cURL / Python / TypeScript)          |
-| E           | edit state in `$EDITOR`                      |
-| ?           | toggle this help                             |
-| Esc         | close help / cancel a prompt                 |
-| q           | quit (confirms if there are unsaved changes) |
+**Navigate**
+
+| Key         | Action         |
+| ----------- | -------------- |
+| Tab         | cycle panes    |
+| 1 / 2 / 3   | jump to a pane |
+| ↑ / ↓ (k/j) | move selection |
+
+**Run**
+
+| Key | Action |
+| --- | ------ |
+| r   | run    |
+
+**Edit**
+
+| Key   | Action                                             |
+| ----- | -------------------------------------------------- |
+| a     | add question                                       |
+| d     | delete question                                    |
+| D     | duplicate question                                 |
+| J / K | move question down / up                            |
+| Enter | edit selected question (when Questions is focused) |
+| n     | rename selected question                           |
+| i     | edit state (single line)                           |
+| m     | set model                                          |
+
+**Sets & export**
+
+| Key | Action                                                                    |
+| --- | ------------------------------------------------------------------------- |
+| o   | open a saved set                                                          |
+| s   | save (prompts for a name only the first time; saves silently after)       |
+| S   | save as (always prompts for a name)                                       |
+| e   | export as cURL / Python / TypeScript                                      |
+| E   | edit the full request as JSON in `$VISUAL`/`$EDITOR` (falls back to `vi`) |
+
+**App**
+
+| Key    | Action                                                                                 |
+| ------ | -------------------------------------------------------------------------------------- |
+| ?      | show help (Esc closes)                                                                 |
+| Esc    | close help / cancel a prompt                                                           |
+| q      | quit (confirms first if there are unsaved changes)                                     |
+| Ctrl+C | quit from anywhere, including mid-prompt (confirms first if there are unsaved changes) |
+
+A structured (object/array) `instructions` or `criteria` value shows as a
+`<structured #N — edit in JSON>` placeholder in these line editors; edit it with `E`.
 
 Set `NO_COLOR` to disable colored output in both the TUI and `jev ask`'s formatted results.
 
@@ -173,10 +213,12 @@ Every question has an `instructions` field and a `type`-specific `criteria`:
 `instructions` and `criteria` values can be plain strings, or structured text (an array or an
 object) when a single string doesn't say enough. When the state is structured JSON, the web
 workbench lets you reference a piece of it from an instructions or criteria field by typing a
-backtick — for example `` `state.customer.plan` `` — which triggers autocomplete over the state's
-own paths. Because JavaScript orders object keys with integer-like keys first in numeric order,
-`choice` options named `"0"`, `"1"`, `"2"` are always listed in that numeric order regardless of
-how they were typed, ahead of any non-numeric option names.
+backtick, which triggers autocomplete over the state's own paths. A backticked path is relative to
+the state value itself, not prefixed with `state.` — for state `{"customer": {"plan": "pro"}}` the
+path is `` `customer.plan` ``, and for `{"ticket": {"messages": [{"text": "…"}]}}` it's
+`` `ticket.messages[0].text` ``. Because JavaScript orders object keys with integer-like keys
+first in numeric order, `choice` options named `"0"`, `"1"`, `"2"` are always listed in that
+numeric order regardless of how they were typed, ahead of any non-numeric option names.
 
 ## Cost and limits
 
