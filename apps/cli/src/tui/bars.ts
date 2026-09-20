@@ -1,5 +1,6 @@
 // Pure text-rendering helpers for the TUI results pane. No Ink dependency
 // here so these are trivially unit-testable without a terminal.
+import stringWidth from 'string-width';
 
 /** Confidence values at or above this threshold read as normal; below it
  * they render as a warning (spec §8.2). Matches `apps/web`'s `LOW_CONFIDENCE`. */
@@ -11,12 +12,50 @@ export function fmt2(n: number): string {
   return Number.isFinite(n) ? n.toFixed(2) : '–';
 }
 
-/** Truncate `text` to at most `max` characters, appending an ellipsis when
- * cut. `max < 1` returns an empty string. */
+/** Render `value` (which may not be a string, e.g. a criteria description
+ * from parsed JSON) as display text. */
+export function textOf(value: unknown): string {
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** The number of terminal columns `text` occupies — NOT `text.length`, which
+ * counts UTF-16 code units. A CJK character is 2 columns wide but has
+ * `.length` 1; many emoji are 2 columns wide and 2+ UTF-16 units;
+ * combining marks are 0 columns wide. Free-form user input (state,
+ * instructions) needs the real column count to fit a pane without
+ * overflowing the frame. */
+export function displayWidth(text: string): number {
+  return stringWidth(text);
+}
+
+const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+/** Truncate `text` to at most `max` DISPLAY columns, appending an ellipsis
+ * when cut. Iterates by grapheme cluster (not UTF-16 code unit) so a
+ * surrogate pair or ZWJ emoji sequence is never split. `max < 1` returns an
+ * empty string. */
 export function truncate(text: string, max: number): string {
   if (max < 1) return '';
-  if (text.length <= max) return text;
-  return `${text.slice(0, max - 1)}…`;
+  if (displayWidth(text) <= max) return text;
+
+  const budget = max - 1; // reserve one column for the ellipsis
+  let result = '';
+  let width = 0;
+  for (const { segment } of segmenter.segment(text)) {
+    const segmentWidth = displayWidth(segment);
+    if (width + segmentWidth > budget) break;
+    result += segment;
+    width += segmentWidth;
+  }
+  return `${result}…`;
+}
+
+/** Pad `text` with spaces to a DISPLAY width of `width`. Never truncates —
+ * if `text` is already at or over `width` columns it is returned as-is. */
+export function padEndDisplay(text: string, width: number): string {
+  const textWidth = displayWidth(text);
+  if (textWidth >= width) return text;
+  return text + ' '.repeat(width - textWidth);
 }
 
 /** Render a `width`-wide horizontal scale for a score out of `levels` levels

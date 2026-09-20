@@ -4,15 +4,11 @@ import type { ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import { DEFAULT_MODEL, estimateStateBudget, LIMITS, questionIds } from '@jev-ui/core';
 import type { Question, Request } from '@jev-ui/core';
-import { truncate } from './bars.js';
+import { textOf, truncate } from './bars.js';
 
 const MAX_STATE_LINES = 12;
 const TOKEN_BUDGET = LIMITS.stateBudgetTokens.toLocaleString('en-US');
 const NOUL_SUMMARY_LEN = 40;
-
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : JSON.stringify(value);
-}
 
 /** A bordered pane. Focus is shown two ways so it survives `NO_COLOR`: a
  * `▌` prefix on the title always, and a cyan border only when `focused &&
@@ -75,16 +71,20 @@ function questionSummary(question: Question): string {
   }
 }
 
+// Detail lines are rendered with a 2-column indent prefix (see
+// `QuestionsView` below), so they must be truncated to `width - 2` or the
+// indent pushes them past the pane's right edge.
 function questionDetails(question: Question, width: number): string[] {
-  const lines = [truncate(textOf(question.instructions), width)];
+  const detailWidth = Math.max(0, width - 2);
+  const lines = [truncate(textOf(question.instructions), detailWidth)];
   if (question.type === 'choice') {
     for (const [key, value] of Object.entries(question.criteria)) {
       const description = value === null || value === undefined ? '' : textOf(value);
-      lines.push(truncate(`${key} — ${description}`, width));
+      lines.push(truncate(`${key} — ${description}`, detailWidth));
     }
   } else if (question.type === 'score') {
     question.criteria.forEach((level, index) => {
-      lines.push(truncate(`${index} · ${textOf(level)}`, width));
+      lines.push(truncate(`${index} · ${textOf(level)}`, detailWidth));
     });
   }
   return lines;

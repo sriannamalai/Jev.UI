@@ -213,4 +213,18 @@ describe('KEYMAP', () => {
       expect(description.length).toBeGreaterThan(0);
     }
   });
+
+  it("describes '?' accurately: it only opens the overlay, and only Esc closes it", () => {
+    // Ground the label in actual handleKey behaviour rather than aspiration:
+    // while in 'help' mode, any non-Esc key is a no-op — only Esc returns to
+    // 'normal'. The label must not claim "any key closes" or "toggle".
+    const ctx = makeCtx({ mode: 'help' });
+    handleKey('x', key(), ctx);
+    expect(ctx.setMode).not.toHaveBeenCalled();
+    handleKey('', key({ escape: true }), ctx);
+    expect(ctx.setMode).toHaveBeenCalledWith('normal');
+
+    expect(KEYMAP['?']).not.toMatch(/toggle/i);
+    expect(KEYMAP['?']).toMatch(/esc/i);
+  });
 });

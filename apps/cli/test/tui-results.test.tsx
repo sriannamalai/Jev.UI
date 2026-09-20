@@ -1,5 +1,17 @@
+import { vi } from 'vitest';
+
+// Ink's `dimColor` goes through chalk, which auto-detects terminal color
+// support from `process.stdout`/env at import time. The test runner's stdout
+// isn't a TTY, so chalk would otherwise render no ANSI codes at all —
+// `vi.hoisted` runs this above the `ink`/chalk imports below so the "with
+// color: true" test can assert on the real dim SGR sequence.
+vi.hoisted(() => {
+  process.env.FORCE_COLOR = '1';
+});
+
 import type { Request, RunResult } from '@jev-ui/core';
 import { render } from 'ink-testing-library';
+import stringWidth from 'string-width';
 import { describe, expect, it } from 'vitest';
 import { ResultsView, StatusLine } from '../src/tui/index.js';
 
@@ -254,6 +266,23 @@ describe('ResultsView', () => {
     expect(headerLine?.trimStart().startsWith('▸ ')).toBe(true);
   });
 
+  it('dims the stale banner when color is enabled', () => {
+    const { lastFrame } = render(
+      <ResultsView
+        request={REQUEST}
+        result={RESULT}
+        stale={true}
+        running={false}
+        selectedId={undefined}
+        width={WIDTH}
+        color={true}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    const staleLine = frame.split('\n').find((line) => line.includes('stale — request changed'));
+    expect(staleLine).toContain('\u001b[2m');
+  });
+
   it('emits no ESC characters when color is false', () => {
     const { lastFrame } = render(
       <ResultsView
@@ -286,6 +315,71 @@ describe('ResultsView', () => {
     for (const line of plain.split('\n')) {
       expect(line.length).toBeLessThanOrEqual(40);
     }
+  });
+
+  it('wraps every line to fit within the given DISPLAY width, with CJK option keys and emoji legend text', () => {
+    const wideRequest: Request = {
+      ...REQUEST,
+      questions: {
+        department: {
+          type: 'choice',
+          // Deliberately unequal option-key lengths (2 vs. 5 characters): a
+          // `.length`-based label column visibly misaligns the bars across
+          // rows here, while a DISPLAY-width-based one keeps them flush.
+          instructions: 'Which department?',
+          criteria: { 技術: null, 営業部門課: null, 請求: null },
+        },
+        frustration: REQUEST.questions.frustration!,
+      },
+    };
+    const wideResult: RunResult = {
+      ...RESULT,
+      answers: {
+        department: {
+          type: 'choice',
+          choice: '技術',
+          confidence: 0.75,
+          probabilities: { 技術: 0.84, 営業部門課: 0.0, 請求: 0.16 },
+        },
+        frustration: {
+          type: 'score',
+          score: 1.0,
+          confidence: 1.0,
+          legend: {
+            '0': '😌 calm',
+            '1': '😐 frustrated but civil',
+            '2': '😡 very angry',
+          },
+          probabilities: { '0': 0, '1': 1, '2': 0 },
+        },
+      },
+    };
+    const { lastFrame } = render(
+      <ResultsView
+        request={wideRequest}
+        result={wideResult}
+        stale={false}
+        running={false}
+        selectedId={undefined}
+        width={40}
+        color={true}
+      />,
+    );
+    const plain = stripAnsi(lastFrame() ?? '');
+    const lines = plain.split('\n');
+    for (const line of lines) {
+      expect(stringWidth(line)).toBeLessThanOrEqual(40);
+    }
+    // Label columns stay aligned within a block: every bar row in the
+    // CHOICE block starts at the same display column.
+    const choiceStart = lines.findIndex((line) => line.includes('CHOICE department'));
+    const scoreStart = lines.findIndex((line) => line.includes('SCORE frustration'));
+    const choiceBlockLines = lines.slice(choiceStart + 1, scoreStart);
+    const barStarts = choiceBlockLines
+      .filter((line) => /[█░]/.test(line))
+      .map((line) => stringWidth(line.slice(0, line.search(/[█░]/))));
+    expect(barStarts.length).toBeGreaterThan(0);
+    expect(new Set(barStarts).size).toBe(1);
   });
 });
 

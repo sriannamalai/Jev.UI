@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { LOW_CONFIDENCE, fmt2, renderScale, truncate } from '../src/tui/bars.js';
+import stringWidth from 'string-width';
+import {
+  LOW_CONFIDENCE,
+  displayWidth,
+  fmt2,
+  padEndDisplay,
+  renderScale,
+  textOf,
+  truncate,
+} from '../src/tui/bars.js';
 
 describe('renderScale', () => {
   it('marks the middle level of three, width 11', () => {
@@ -80,6 +89,74 @@ describe('truncate', () => {
   it('returns an empty string when max is less than 1', () => {
     expect(truncate('hello', 0)).toBe('');
     expect(truncate('hello', -3)).toBe('');
+  });
+
+  it('truncates CJK text by DISPLAY width, not character count', () => {
+    const result = truncate('日本語のテキスト', 6);
+    expect(stringWidth(result)).toBeLessThanOrEqual(6);
+    expect(result.endsWith('…')).toBe(true);
+  });
+
+  it('never splits inside a ZWJ emoji sequence', () => {
+    const text = '👩‍👩‍👧‍👦 family';
+    const graphemes = [
+      ...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text),
+    ].map((s) => s.segment);
+    const result = truncate(text, 4);
+    expect(result.endsWith('…')).toBe(true);
+    const body = result.slice(0, -1);
+    // `body` must be exactly some concatenation of whole leading graphemes
+    // from the original text — never a partial cut through one.
+    let rebuilt = '';
+    for (const grapheme of graphemes) {
+      if (!body.startsWith(rebuilt + grapheme)) break;
+      rebuilt += grapheme;
+    }
+    expect(rebuilt).toBe(body);
+  });
+
+  it('counts combining marks as width 1 per grapheme cluster', () => {
+    const combining = 'é'.repeat(5); // 5 "é" made of e + combining acute accent
+    expect(combining.length).toBe(10);
+    expect(displayWidth(combining)).toBe(5);
+    const result = truncate(combining, 3);
+    expect(stringWidth(result)).toBeLessThanOrEqual(3);
+    expect(result.endsWith('…')).toBe(true);
+  });
+});
+
+describe('displayWidth', () => {
+  it('matches string-width for ASCII, CJK, and emoji', () => {
+    expect(displayWidth('hello')).toBe(5);
+    expect(displayWidth('日本語')).toBe(6);
+  });
+});
+
+describe('padEndDisplay', () => {
+  it('pads ASCII text to a display width, matching padEnd', () => {
+    expect(padEndDisplay('hi', 5)).toBe('hi   ');
+  });
+
+  it('pads CJK text to a DISPLAY width, not a character count', () => {
+    const result = padEndDisplay('日本', 6);
+    expect(stringWidth(result)).toBe(6);
+    expect(result.startsWith('日本')).toBe(true);
+  });
+
+  it('never truncates when text is already at or over the target width', () => {
+    expect(padEndDisplay('hello', 3)).toBe('hello');
+  });
+});
+
+describe('textOf', () => {
+  it('returns a string value unchanged', () => {
+    expect(textOf('hello')).toBe('hello');
+  });
+
+  it('JSON-stringifies a non-string value', () => {
+    expect(textOf(42)).toBe('42');
+    expect(textOf({ a: 1 })).toBe('{"a":1}');
+    expect(textOf(null)).toBe('null');
   });
 });
 

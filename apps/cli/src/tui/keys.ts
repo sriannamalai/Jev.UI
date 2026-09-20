@@ -30,7 +30,7 @@ export const KEYMAP: Record<string, string> = {
   n: 'rename selected question',
   i: 'edit state (single line)',
   m: 'set model',
-  '?': 'toggle this help',
+  '?': 'show help (Esc closes)',
   Esc: 'close help / cancel a prompt',
   q: 'quit',
 };

@@ -12,7 +12,15 @@ import type {
   ScoreAnswer,
 } from '@jev-ui/core';
 import { bar } from '../format.js';
-import { LOW_CONFIDENCE, fmt2, renderScale, truncate } from './bars.js';
+import {
+  LOW_CONFIDENCE,
+  displayWidth,
+  fmt2,
+  padEndDisplay,
+  renderScale,
+  textOf,
+  truncate,
+} from './bars.js';
 
 const MAX_LABEL = 28;
 const NUM_WIDTH = 4;
@@ -45,12 +53,8 @@ function styleProps(
   return props;
 }
 
-function textOf(value: unknown): string {
-  return typeof value === 'string' ? value : JSON.stringify(value);
-}
-
 function layout(labels: string[], width: number): { labelWidth: number; barWidth: number } {
-  const raw = labels.length > 0 ? Math.max(...labels.map((l) => l.length)) : 0;
+  const raw = labels.length > 0 ? Math.max(...labels.map((l) => displayWidth(l))) : 0;
   const labelWidth = Math.min(raw, MAX_LABEL);
   const barWidth = Math.max(MIN_BAR, width - labelWidth - NUM_WIDTH - GUTTERS);
   return { labelWidth, barWidth };
@@ -64,7 +68,7 @@ function RowLine(props: {
   color: boolean;
 }) {
   const { row, labelWidth, barWidth, dim, color } = props;
-  const label = truncate(row.label, labelWidth).padEnd(labelWidth);
+  const label = padEndDisplay(truncate(row.label, labelWidth), labelWidth);
   const text = `${label}  ${bar(row.value, barWidth)}  ${fmt2(row.value)}`;
   return <Text {...styleProps(color, { dim })}>{text}</Text>;
 }
@@ -309,7 +313,7 @@ export function ResultsView(props: {
   return (
     <Box flexDirection="column" width={width}>
       {running && <Text>Running…</Text>}
-      {stale && <Text>stale — request changed</Text>}
+      {stale && <Text {...styleProps(color, { dim: true })}>stale — request changed</Text>}
       {blocks.map(({ id, answer }, index) => (
         <Box key={id} flexDirection="column" marginTop={index > 0 ? 1 : 0}>
           <Block
