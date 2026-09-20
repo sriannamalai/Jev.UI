@@ -127,12 +127,6 @@ function isEntryPoint(): boolean {
   }
 }
 
-const CLEAN_EXIT_CODES = new Set([
-  'commander.helpDisplayed',
-  'commander.version',
-  'commander.help',
-]);
-
 /**
  * Parse `argv` (in `process.argv` shape) and run the matching command, setting
  * `process.exitCode` rather than calling `process.exit()` so output can finish flushing.
@@ -146,7 +140,12 @@ export async function main(
     await program.parseAsync(argv);
   } catch (err) {
     if (err instanceof CommanderError) {
-      process.exitCode = CLEAN_EXIT_CODES.has(err.code) ? 0 : 2;
+      // Trust commander's own verdict: it sets exitCode 0 for a deliberate help/version
+      // display, but a help triggered by a usage error (e.g. `jev help <unknown-command>`,
+      // or a missing-subcommand help) carries exitCode 1 — surface that as our usage-error
+      // code (2) rather than treating every `commander.help`/`commander.helpDisplayed`/
+      // `commander.version` code as success.
+      process.exitCode = err.exitCode === 0 ? 0 : 2;
     } else {
       const message = err instanceof Error ? err.message : String(err);
       process.stderr.write(`unexpected: ${message}\n`);

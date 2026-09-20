@@ -172,4 +172,35 @@ describe('main', () => {
     expect(deps.runTui).not.toHaveBeenCalled();
     expect(exitSpy).not.toHaveBeenCalled();
   });
+
+  it('sets exit code 2 for `help` on an unknown subcommand', async () => {
+    const deps = makeDeps();
+    await main(['node', 'jev', 'help', 'nope'], deps);
+    expect(process.exitCode).toBe(2);
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 0 for bare `help`', async () => {
+    const deps = makeDeps();
+    await main(['node', 'jev', 'help'], deps);
+    expect(process.exitCode).toBe(0);
+    expect(out).toContain('Usage:');
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 0 for `help ask`', async () => {
+    const deps = makeDeps();
+    await main(['node', 'jev', 'help', 'ask'], deps);
+    expect(process.exitCode).toBe(0);
+    expect(out).toContain('Usage:');
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('sets exit code 0 for `ask --help`', async () => {
+    const deps = makeDeps();
+    await main(['node', 'jev', 'ask', '--help'], deps);
+    expect(process.exitCode).toBe(0);
+    expect(out).toContain('Usage:');
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
 });
