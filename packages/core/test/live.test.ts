@@ -6,7 +6,8 @@ import type { Request } from '../src/index.js';
 // Run with `JEV_LIVE=1 pnpm --filter @jev-ui/core test live`. Skipped by
 // default so `pnpm test` never makes a network call or needs a key.
 const quickStart: Request = {
-  state: "Hi, I've been trying to connect my Stripe account…",
+  state:
+    "Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP.",
   model: 'jev-latest',
   questions: {
     department: {
@@ -34,24 +35,24 @@ describe.skipIf(process.env.JEV_LIVE !== '1')('live API', () => {
     const department = result.answers.department;
     expect(department?.type).toBe('choice');
     if (department?.type === 'choice') {
-      // The live model classifies this exact quick-start message as
-      // "billing" (payment/subscription), matching the fixture already
-      // established in schema.test.ts's `quickStartAnswers` — not
-      // "technical".
-      expect(department.choice).toBe('billing');
+      // Loose bounds only: model versions move over time, and this
+      // asserts direction (a Stripe integration failure is a technical
+      // issue), not an exact probability.
+      expect(department.choice).toBe('technical');
     }
 
     const isUrgent = result.answers.is_urgent;
     expect(isUrgent?.type).toBe('noul');
     if (isUrgent?.type === 'noul') {
-      // The live model does not treat this quick-start message as urgent
-      // (observed ~0.15) — assert the answer shape/range rather than an
-      // unfounded direction.
-      expect(isUrgent.noul).toBeGreaterThanOrEqual(0);
-      expect(isUrgent.noul).toBeLessThanOrEqual(1);
+      expect(isUrgent.noul).toBeGreaterThan(0.8);
     }
 
-    expect(result.answers.frustration?.type).toBe('score');
+    const frustration = result.answers.frustration;
+    expect(frustration?.type).toBe('score');
+    if (frustration?.type === 'score') {
+      expect(frustration.score).toBeGreaterThanOrEqual(0.5);
+      expect(frustration.score).toBeLessThanOrEqual(1.5);
+    }
 
     expect(result.model).toMatch(/^jev-\d/);
     expect(result.usage.inputTokens).toBeGreaterThan(0);

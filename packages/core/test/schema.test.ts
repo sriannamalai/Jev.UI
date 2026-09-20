@@ -2,7 +2,8 @@ import { expect, test } from 'vitest';
 import { AnswerSchema, QuestionSchema, RequestSchema } from '../src/schema.js';
 
 const quickStart = {
-  state: "Hi, I've been trying to connect my Stripe account…",
+  state:
+    "Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP.",
   model: 'jev-latest',
   questions: {
     department: {

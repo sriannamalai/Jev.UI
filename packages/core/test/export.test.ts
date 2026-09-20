@@ -16,7 +16,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // Same literal as packages/core/test/schema.test.ts's quick-start fixture —
 // copied, not imported, per the task instructions.
 const quickStart: Request = {
-  state: "Hi, I've been trying to connect my Stripe account…",
+  state:
+    "Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP.",
   model: 'jev-latest',
   questions: {
     department: {

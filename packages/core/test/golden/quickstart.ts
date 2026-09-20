@@ -3,7 +3,7 @@ import { TypeSafeClient } from "@typesafe-ai/sdk";
 const client = new TypeSafeClient();
 
 const response = await client.systemOne({
-  state: "Hi, I've been trying to connect my Stripe account…",
+  state: "Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP.",
   model: "jev-latest",
   questions: {
     "department": {

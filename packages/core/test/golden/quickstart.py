@@ -3,7 +3,7 @@ from typesafe_sdk import Choice, Noul, Score, TypeSafeClient
 client = TypeSafeClient()
 
 response = client.system_one(
-    state="Hi, I've been trying to connect my Stripe account\u2026",
+    state="Hi, I've been trying to connect my Stripe account for 3 days and the integration keeps failing. I'm losing sales. Please help ASAP.",
     questions={
         "department": Choice(
             instructions="Which team should handle this",
