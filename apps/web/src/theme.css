@@ -634,3 +634,59 @@ legend {
   margin-left: auto;
   color: var(--ink-3);
 }
+
+/* json pane */
+.r.valid {
+  color: var(--accent);
+}
+
+.r.err {
+  color: var(--warn);
+}
+
+.cm-jev-json {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.cm-jev-json .cm-editor {
+  height: 100%;
+}
+
+/* error banner */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--warn-soft);
+  color: var(--ink);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.banner .r {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+/* no-api-key setup notice */
+.setup-screen {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: var(--sunk);
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.setup-screen code {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+}

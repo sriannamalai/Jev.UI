@@ -13,3 +13,8 @@ export { ChoiceResult } from './ChoiceResult.js';
 export { ScoreResult } from './ScoreResult.js';
 export { ResultsPane } from './ResultsPane.js';
 export { StatusBar } from './StatusBar.js';
+export { JsonPane } from './JsonPane.js';
+export { JsonPaneHeader } from './JsonPaneHeader.js';
+export { findQuestionRange } from './jsonHighlight.js';
+export { Banner } from './Banner.js';
+export { SetupScreen } from './SetupScreen.js';
