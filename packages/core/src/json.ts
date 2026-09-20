@@ -29,7 +29,7 @@ export function parseRequestJson(text: string): ParseResult {
   return { ok: true, request: result.data };
 }
 
-function formatPath(path: readonly PropertyKey[]): string {
+export function formatPath(path: readonly PropertyKey[]): string {
   return path.reduce<string>((acc, segment, index) => {
     if (typeof segment === 'number') return `${acc}[${segment}]`;
     return index === 0 ? String(segment) : `${acc}.${String(segment)}`;
