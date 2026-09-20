@@ -17,11 +17,15 @@
     "@jev-ui/core": "workspace:*",
     "@jev-ui/server": "workspace:*",
     "commander": "^15.0.0",
-    "open": "^11.0.4"
+    "ink": "^7.1.1",
+    "open": "^11.0.4",
+    "react": "catalog:"
   },
   "devDependencies": {
     "@jev-ui/web": "workspace:*",
     "@types/node": "catalog:",
+    "@types/react": "^19.2.2",
+    "ink-testing-library": "^4.0.0",
     "jsdom": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
