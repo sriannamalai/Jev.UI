@@ -13,7 +13,7 @@
     "lint": "eslint . && prettier --check ."
   },
   "devDependencies": {
-    "@types/node": "^26.6.2",
+    "@types/node": "catalog:",
     "eslint": "^10.11.0",
     "prettier": "^3.9.8",
     "tsup": "catalog:",
