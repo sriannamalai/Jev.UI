@@ -14,8 +14,9 @@ export function PathInput(props: {
   label: string;
   invalid?: boolean;
   multiline?: boolean;
+  placeholder?: string;
 }) {
-  const { value, onChange, paths, label, invalid, multiline } = props;
+  const { value, onChange, paths, label, invalid, multiline, placeholder } = props;
   const fieldRef = useRef<FieldElement>(null);
   const pendingCaret = useRef<number | null>(null);
   const [caret, setCaret] = useState(value.length);
@@ -84,6 +85,7 @@ export function PathInput(props: {
     id: fieldId,
     className: 'inp',
     value,
+    placeholder,
     role: 'combobox' as const,
     'aria-expanded': open,
     'aria-controls': listId,

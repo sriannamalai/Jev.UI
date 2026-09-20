@@ -240,6 +240,77 @@ label.f {
   border-color: var(--warn);
 }
 
+.field-structured {
+  display: grid;
+  gap: 4px;
+}
+
+.structured {
+  border: 1px solid var(--line);
+  background: var(--sunk);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: 11px;
+  margin: 0;
+}
+
+fieldset {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px 10px;
+  display: grid;
+  gap: 6px;
+}
+
+fieldset[aria-invalid='true'] {
+  border-color: var(--warn);
+}
+
+legend {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  padding: 0 4px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 22px 120px 1fr 18px;
+  gap: 6px;
+  align-items: center;
+}
+
+.row.lvl {
+  grid-template-columns: 22px 1fr 18px;
+}
+
+.idx {
+  font:
+    11px 'IBM Plex Mono',
+    monospace;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.x {
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  text-align: center;
+}
+
+.x:disabled {
+  opacity: 0.4;
+}
+
 .add {
   border: 1px dashed var(--line);
   background: transparent;

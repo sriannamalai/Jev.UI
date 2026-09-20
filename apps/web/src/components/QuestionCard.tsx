@@ -4,6 +4,7 @@
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { isValidQuestionId, questionIds, type Question } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';
+import { QuestionForm } from './QuestionForm.js';
 
 function summarize(question: Question): string {
   switch (question.type) {
@@ -173,7 +174,7 @@ export function QuestionCard(props: { id: string }) {
       {error && <div role="alert">{error}</div>}
       {expanded && (
         <div className="q-body">
-          <div data-slot="question-form" />
+          <QuestionForm id={id} />
         </div>
       )}
     </div>
