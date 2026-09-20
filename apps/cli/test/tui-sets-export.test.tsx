@@ -356,13 +356,45 @@ describe('e: export', () => {
     stdin.write('e');
     await waitForText(lastFrame, 'Export as');
     stdin.write('c');
-    await waitForText(lastFrame, 'Wrote triage.sh');
+    await waitForText(lastFrame, 'Wrote ./triage.sh');
 
     expect(writeFile).toHaveBeenCalledTimes(1);
     const [path, content] = writeFile.mock.calls[0]!;
     expect(path).toBe('/cwd/triage.sh');
     expect(content).toContain('$TYPESAFE_API_KEY');
     expect(content).not.toMatch(/Bearer (?!\$TYPESAFE_API_KEY\b)\S+/);
+  });
+
+  it('never writes outside the working directory, whatever a set body calls itself', async () => {
+    const writeFile = vi.fn<(path: string, content: string) => Promise<void>>(
+      async () => undefined,
+    );
+    const deps = makeDeps({
+      columns: 140,
+      cwd: vi.fn(() => '/cwd'),
+      writeFile,
+      sets: fakeSets({
+        list: vi.fn(async () => [{ name: 'triage', questionCount: 2, valid: true }]),
+        // A hostile file body: core forces the file name, but the TUI must
+        // not trust whatever reaches `state.setName` either.
+        load: vi.fn(async () => ({ ...TRIAGE_SET, name: '../../evil' })),
+      }),
+    });
+    const { lastFrame, stdin } = renderApp(deps, REQUEST);
+    stdin.write('o');
+    await waitForText(lastFrame, 'Open set');
+    stdin.write('\r');
+    await waitForText(lastFrame, 'Loaded state');
+
+    stdin.write('e');
+    await waitForText(lastFrame, 'Export as');
+    stdin.write('c');
+    await waitForText(lastFrame, 'Wrote ./request.sh');
+
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    const [path] = writeFile.mock.calls[0]!;
+    expect(path).toBe('/cwd/request.sh');
+    expect(path).not.toContain('..');
   });
 
   it('asks to overwrite when the file already exists; n writes nothing', async () => {

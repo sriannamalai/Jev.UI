@@ -1,6 +1,7 @@
 // The TUI's app frame: three panes (wide) or a tab strip + one pane
 // (narrow), focus, selection, run, the editing keys, sets, export,
 // `$EDITOR`, and quit confirmation (spec §8.2).
+import * as nodePath from 'node:path';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
@@ -678,15 +679,28 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
           done();
           return;
         }
-        const fileName = `${state.setName ?? 'request'}.${option.ext}`;
-        const filePath = `${deps.cwd()}/${fileName}`;
+        // `state.setName` is only ever a validated set name, but an export
+        // writes into the user's working directory, so the base name is
+        // re-checked here rather than trusted: anything else falls back to
+        // "request", and the resolved path must still sit directly in cwd.
+        const setName = state.setName ?? '';
+        const baseName = SET_NAME_RE.test(setName) ? setName : 'request';
+        const fileName = `${baseName}.${option.ext}`;
+        const cwd = deps.cwd();
+        const filePath = nodePath.join(cwd, fileName);
+        const displayPath = `./${nodePath.relative(cwd, filePath)}`;
+        if (nodePath.dirname(nodePath.resolve(filePath)) !== nodePath.resolve(cwd)) {
+          setNotice('✕ Refusing to write outside the working directory');
+          done();
+          return;
+        }
 
         const write = () => {
           void (async () => {
             try {
               const content = exportRequest(option.target, state.request);
               await deps.writeFile(filePath, content);
-              if (mountedRef.current) setNotice(`Wrote ${fileName}`);
+              if (mountedRef.current) setNotice(`Wrote ${displayPath}`);
             } catch (err) {
               if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
             } finally {
@@ -705,7 +719,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
             if (exists) {
               openPrompt({
                 kind: 'choice',
-                label: `Overwrite ${fileName}?`,
+                label: `Overwrite ${displayPath}?`,
                 options: [
                   { key: 'y', label: 'Yes' },
                   { key: 'n', label: 'No' },
