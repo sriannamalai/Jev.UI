@@ -21,6 +21,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
     "zod": "catalog:"
   },
   "devDependencies": {
