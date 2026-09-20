@@ -152,6 +152,11 @@ export function WorkbenchProvider(props: { children: ReactNode; initial?: Reques
   const mountedRef = useRef(true);
 
   useEffect(() => {
+    // Runs on every mount, including the mount that follows React
+    // StrictMode's dev-only mount -> cleanup -> mount cycle. Without this,
+    // `mountedRef.current` would stay `false` forever after that cycle and
+    // every subsequent `run()` result would be silently dropped.
+    mountedRef.current = true;
     return () => {
       mountedRef.current = false;
       controllerRef.current?.abort();

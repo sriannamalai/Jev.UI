@@ -373,25 +373,7 @@ describe('WorkbenchProvider / useWorkbench', () => {
 
     const failing = makeFakeApi({ putSet: vi.fn().mockRejectedValue(new Error('disk full')) });
     const { result: result2 } = renderHook(() => useWorkbench(), { wrapper: wrapper(failing) });
-    // `.rejects.toThrow('<string>')` (the string-argument overload) hits a
-    // real bug in this workspace's dependency graph, not a repo-wide vitest
-    // defect: only apps/web pins a `vite` version directly, so pnpm installs
-    // two physically distinct copies of `vitest@5.0.1` (one resolved against
-    // vite@7.x, one against vite@8.x). Both copies' setup code runs in this
-    // worker and each independently wraps chai's shared
-    // `Assertion.prototype.throws` — the outer wrapper replaces the `object`
-    // flag with a throwing closure, then the inner wrapper (its `_super`)
-    // reads that already-replaced flag and wraps *it* again, so the closure
-    // that finally runs throws the first closure instead of the real
-    // rejection. Chai's message comparison then does
-    // `thrown.message.indexOf(...)` on that closure (no `.message`) and
-    // throws `Cannot read properties of undefined (reading 'indexOf')`.
-    // Passing an Error instance/class to `.rejects.toThrow` (jest-style
-    // equality/instanceof checks) never calls `.throws()`, so it is
-    // unaffected — verified directly against this repo's installed chai +
-    // vitest. Using that form here restores real throw-checking instead of
-    // the weaker `toMatchObject`.
-    await expect(result2.current.save('x')).rejects.toThrow(new Error('disk full'));
+    await expect(result2.current.save('x')).rejects.toThrow('disk full');
     await expect(result2.current.save('x')).rejects.toBeInstanceOf(Error);
   });
 
@@ -411,10 +393,63 @@ describe('WorkbenchProvider / useWorkbench', () => {
     const fakeApi = makeFakeApi({ getSet: vi.fn().mockRejectedValue(new Error('not found')) });
     const { result } = renderHook(() => useWorkbench(), { wrapper: wrapper(fakeApi) });
 
-    // See the comment on the `save()` failure test above for why the
-    // Error-object form is used instead of a bare message string.
-    await expect(result.current.load('nope')).rejects.toThrow(new Error('not found'));
+    await expect(result.current.load('nope')).rejects.toThrow('not found');
     await expect(result.current.load('nope')).rejects.toBeInstanceOf(Error);
+  });
+});
+
+describe('WorkbenchProvider under React.StrictMode', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  // `reactStrictMode: true` makes StrictMode the literal root that
+  // renderHook renders, with `wrapper(fakeApi)` (WorkbenchProvider) nested
+  // beneath it. That reproduces React's real dev-mode mount -> cleanup ->
+  // mount cycle for the provider's effects: passing a wrapper that itself
+  // renders `<StrictMode>` around its children does not, because the
+  // wrapper component then sits *above* StrictMode in the tree and React
+  // only double-invokes effects for the subtree StrictMode itself roots.
+  it('run() still resolves into state.wb.result after the StrictMode mount/cleanup/mount cycle', async () => {
+    const fakeApi = makeFakeApi({
+      run: vi.fn().mockResolvedValue({ questions: {} }),
+    });
+    const { result } = renderHook(() => useWorkbench(), {
+      wrapper: wrapper(fakeApi),
+      reactStrictMode: true,
+    });
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(result.current.state.wb.result).toEqual({ questions: {} });
+    expect(result.current.state.wb.running).toBe(false);
+  });
+
+  it('a failing run still lands in state.wb.error after the StrictMode mount/cleanup/mount cycle', async () => {
+    const fakeApi = makeFakeApi({
+      run: vi
+        .fn()
+        .mockRejectedValue(
+          new ApiError('validation', 'bad question', { path: 'questions.crashed' }),
+        ),
+    });
+    const { result } = renderHook(() => useWorkbench(), {
+      wrapper: wrapper(fakeApi),
+      reactStrictMode: true,
+    });
+
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(result.current.state.wb.error).toEqual({
+      kind: 'validation',
+      message: 'bad question',
+      path: 'questions.crashed',
+    });
+    expect(result.current.state.wb.running).toBe(false);
   });
 });
 
