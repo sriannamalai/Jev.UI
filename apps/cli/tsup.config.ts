@@ -6,7 +6,7 @@ export default defineConfig([
     format: ['esm'],
     platform: 'node',
     banner: { js: '#!/usr/bin/env node' },
-    clean: true,
+    clean: false,
   },
   {
     entry: ['src/index.ts'],

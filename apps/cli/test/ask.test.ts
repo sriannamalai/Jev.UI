@@ -204,6 +204,45 @@ describe('runAsk — state precedence', () => {
     expect(stderr.output.toLowerCase()).toContain('state');
   });
 
+  it('reports a stdin read failure distinctly from a file read failure (--state -)', async () => {
+    const dir = await setupSet('set state');
+    const run = vi.fn(async () => RESULT);
+    const stdin = new Readable({
+      read() {
+        this.destroy(new Error('stream boom'));
+      },
+    }) as Io['stdin'];
+    const stderr = makeWriter();
+    const io = baseIo({ run, stdin, stderr });
+
+    const code = await runAsk({ set: 'triage', state: '-', setsDir: dir }, io);
+
+    expect(code).toBe(2);
+    expect(run).not.toHaveBeenCalled();
+    expect(stderr.output).toContain('Could not read state from stdin');
+    expect(stderr.output).not.toContain('Could not read state file');
+  });
+
+  it('reports a stdin read failure distinctly from a file read failure (implicit piped stdin)', async () => {
+    const dir = await setupSet('set state');
+    const run = vi.fn(async () => RESULT);
+    const stdin = new Readable({
+      read() {
+        this.destroy(new Error('stream boom'));
+      },
+    }) as Io['stdin'];
+    stdin.isTTY = false;
+    const stderr = makeWriter();
+    const io = baseIo({ run, stdin, stderr });
+
+    const code = await runAsk({ set: 'triage', setsDir: dir }, io);
+
+    expect(code).toBe(2);
+    expect(run).not.toHaveBeenCalled();
+    expect(stderr.output).toContain('Could not read state from stdin');
+    expect(stderr.output).not.toContain('Could not read state file');
+  });
+
   it('sends JSON-looking stdin as a parsed object', async () => {
     const dir = await setupSet('set state');
     const run = vi.fn(async (request: Request) => {

@@ -64,7 +64,9 @@ export async function runServe(opts: ServeOptions = {}, io: ServeIo = {}): Promi
       closed = true;
       signals.off('SIGINT', shutdown);
       signals.off('SIGTERM', shutdown);
-      server.close().finally(resolve);
+      // `close()` can reject (e.g. already closed); `.then(resolve, resolve)` consumes
+      // that rejection instead of leaving it to surface as an unhandled rejection.
+      server.close().then(resolve, resolve);
     };
     signals.on('SIGINT', shutdown);
     signals.on('SIGTERM', shutdown);

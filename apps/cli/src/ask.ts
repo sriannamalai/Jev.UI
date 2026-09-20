@@ -119,34 +119,52 @@ async function resolveSet(
   }
 }
 
-async function resolveState(opts: AskOptions, io: Io, set: QuestionSet): Promise<Text | undefined> {
+interface StateOutcome {
+  text?: Text;
+  /** true once resolveState has already written a stderr message for this outcome. */
+  reported?: boolean;
+}
+
+async function resolveState(opts: AskOptions, io: Io, set: QuestionSet): Promise<StateOutcome> {
   if (opts.state !== undefined) {
     if (opts.state === '-') {
-      const raw = await readStdin(io.stdin);
-      return parseStateText(raw);
+      let raw: string;
+      try {
+        raw = await readStdin(io.stdin);
+      } catch {
+        io.stderr.write('Could not read state from stdin\n');
+        return { reported: true };
+      }
+      return { text: parseStateText(raw) };
     }
     let raw: string;
     try {
       raw = await fs.readFile(nodePath.resolve(io.cwd, opts.state), 'utf8');
     } catch {
       io.stderr.write(`Could not read state file: ${opts.state}\n`);
-      return undefined;
+      return { reported: true };
     }
-    return parseStateText(raw);
+    return { text: parseStateText(raw) };
   }
 
   if (!isTTYStdin(io.stdin)) {
-    const piped = await readStdin(io.stdin);
+    let piped: string;
+    try {
+      piped = await readStdin(io.stdin);
+    } catch {
+      io.stderr.write('Could not read state from stdin\n');
+      return { reported: true };
+    }
     if (piped.trim().length > 0) {
-      return parseStateText(piped);
+      return { text: parseStateText(piped) };
     }
   }
 
   if (hasNonEmptyState(set.state)) {
-    return set.state;
+    return { text: set.state };
   }
 
-  return undefined;
+  return {};
 }
 
 export async function runAsk(opts: AskOptions, io: Io): Promise<0 | 1 | 2> {
@@ -157,18 +175,10 @@ export async function runAsk(opts: AskOptions, io: Io): Promise<0 | 1 | 2> {
   if ('exitCode' in setResult) return setResult.exitCode;
   const { set, setName } = setResult;
 
-  let state: Text | undefined;
-  try {
-    state = await resolveState(opts, io, set);
-  } catch {
-    io.stderr.write(`Could not read state file: ${opts.state ?? ''}\n`);
-    return 2;
-  }
+  const outcome = await resolveState(opts, io, set);
+  if (outcome.reported) return 2;
+  const state = outcome.text;
   if (state === undefined) {
-    if (opts.state !== undefined) {
-      // resolveState already reported the specific file-read failure.
-      return 2;
-    }
     io.stderr.write(
       'usage: no state available; pass --state, pipe input on stdin, or set "state" in the question set\n',
     );

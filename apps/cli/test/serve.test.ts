@@ -135,4 +135,34 @@ describe('runServe', () => {
 
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it('settles without rejecting, and raises no unhandledRejection, when close() rejects', async () => {
+    const stdout = makeWriter();
+    const stderr = makeWriter();
+    const signals = makeSignals();
+    const close = vi.fn(async () => {
+      throw new Error('already closed');
+    });
+    const startServer = vi.fn(async () => makeServer(close));
+    const open = vi.fn(async () => undefined);
+
+    const unhandled = vi.fn();
+    process.once('unhandledRejection', unhandled);
+    try {
+      const p = runServe(
+        { open: false },
+        { startServer, open, stdout, stderr, env: { TYPESAFE_API_KEY: 'k' }, signals },
+      );
+      await vi.waitFor(() => expect(stdout.output.length).toBeGreaterThan(0));
+
+      signals.emit('SIGINT');
+      await expect(p).resolves.toBeUndefined();
+
+      // Give any (incorrectly) unhandled rejection a macrotask to surface.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
 });

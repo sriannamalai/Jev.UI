@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { Command, InvalidArgumentError } from 'commander';
+import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { runAsk as defaultRunAsk } from './ask.js';
 import type { AskOptions, Io } from './ask.js';
 import { runServe as defaultRunServe } from './serve.js';
@@ -47,7 +47,10 @@ function parsePort(value: string): number {
   return parsed;
 }
 
-/** Build the `jev` commander program. Exposed for tests; call `.exitOverride()` there. */
+/**
+ * Build the `jev` commander program. Always throws (via `exitOverride`) instead of calling
+ * `process.exit()` directly — both production (`main`) and tests handle that uniformly.
+ */
 export function buildProgram(deps: Partial<BinDeps> = {}): Command {
   const runAskFn = deps.runAsk ?? defaultRunAsk;
   const runServeFn = deps.runServe ?? defaultRunServe;
@@ -55,6 +58,9 @@ export function buildProgram(deps: Partial<BinDeps> = {}): Command {
   const io = deps.io ?? defaultIo();
 
   const program = new Command();
+  // Set BEFORE any `.command()` calls: commander snapshots exitOverride/configureOutput
+  // onto a subcommand at creation time, so later commands must inherit this from the start.
+  program.exitOverride();
   program
     .name('jev')
     .description('Jev.UI — a workbench for TypeSafe Jev question sets')
@@ -121,7 +127,34 @@ function isEntryPoint(): boolean {
   }
 }
 
+const CLEAN_EXIT_CODES = new Set([
+  'commander.helpDisplayed',
+  'commander.version',
+  'commander.help',
+]);
+
+/**
+ * Parse `argv` (in `process.argv` shape) and run the matching command, setting
+ * `process.exitCode` rather than calling `process.exit()` so output can finish flushing.
+ */
+export async function main(
+  argv: string[] = process.argv,
+  deps: Partial<BinDeps> = {},
+): Promise<void> {
+  const program = buildProgram(deps);
+  try {
+    await program.parseAsync(argv);
+  } catch (err) {
+    if (err instanceof CommanderError) {
+      process.exitCode = CLEAN_EXIT_CODES.has(err.code) ? 0 : 2;
+    } else {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`unexpected: ${message}\n`);
+      process.exitCode = 1;
+    }
+  }
+}
+
 if (isEntryPoint()) {
-  const program = buildProgram();
-  void program.parseAsync(process.argv);
+  void main(process.argv);
 }
