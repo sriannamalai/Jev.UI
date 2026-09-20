@@ -26,7 +26,7 @@ export const KEYMAP: Record<string, string> = {
   d: 'delete question',
   D: 'duplicate question',
   'J / K': 'move question down / up',
-  Enter: 'edit selected question',
+  Enter: 'edit selected question (Questions pane)',
   n: 'rename selected question',
   i: 'edit state (single line)',
   m: 'set model',

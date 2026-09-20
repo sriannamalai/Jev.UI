@@ -167,7 +167,6 @@ describe('TextPrompt', () => {
     await tick();
     expect(stripAnsi(lastFrame() ?? '')).toContain('abc▏');
   });
-
 });
 
 describe('LinesPrompt', () => {
@@ -308,7 +307,6 @@ describe('LinesPrompt', () => {
     expect(rows[1]).toContain('始');
     expect(rows[1]).not.toContain('端');
   });
-
 });
 
 describe('ChoicePrompt', () => {

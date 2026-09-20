@@ -128,7 +128,10 @@ describe('choiceToLines / linesToChoice', () => {
   it('treats placeholder-like text that is not the exact pattern as ordinary text', () => {
     const q = choiceQ({ a: { nested: 'value' } });
     const result = linesToChoice(['a: see <structured #0 — edit in JSON> above'], q);
-    expect(result).toEqual({ ok: true, criteria: { a: 'see <structured #0 — edit in JSON> above' } });
+    expect(result).toEqual({
+      ok: true,
+      criteria: { a: 'see <structured #0 — edit in JSON> above' },
+    });
   });
 });
 

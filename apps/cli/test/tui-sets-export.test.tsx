@@ -534,7 +534,9 @@ describe('Ctrl+C', () => {
   it('exits from the open-set list prompt', async () => {
     const deps = makeDeps({
       columns: 140,
-      sets: fakeSets({ list: vi.fn(async () => [{ name: 'triage', questionCount: 2, valid: true }]) }),
+      sets: fakeSets({
+        list: vi.fn(async () => [{ name: 'triage', questionCount: 2, valid: true }]),
+      }),
     });
     const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
     stdin.write('o');

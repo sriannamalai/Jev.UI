@@ -325,9 +325,7 @@ export function LinesPrompt(props: {
       {error !== undefined && (
         <Text color={color ? 'red' : undefined}>{truncate(error, Math.max(1, width))}</Text>
       )}
-      <Text dimColor>
-        {truncate(hint ?? 'Ctrl+S save · Esc cancel', Math.max(1, width))}
-      </Text>
+      <Text dimColor>{truncate(hint ?? 'Ctrl+S save · Esc cancel', Math.max(1, width))}</Text>
     </Box>
   );
 }

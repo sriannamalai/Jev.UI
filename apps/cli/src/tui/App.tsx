@@ -763,6 +763,12 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       try {
         await suspendTerminal(async () => {
           result = await deps.openEditor(text);
+          // Keys typed while the editor was handing the terminal back stay
+          // in the buffer and are replayed as commands. Ink owns stdin (it
+          // is not exposed through `useApp`, and `deps` deliberately has no
+          // handle on the real stream, so tests drive a fake one), so there
+          // is no safe way to drain it from here — left as-is rather than
+          // reaching into `process.stdin` behind Ink's back.
         });
         if (!mountedRef.current) {
           done();

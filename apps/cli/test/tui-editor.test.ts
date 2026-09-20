@@ -51,6 +51,24 @@ describe('openInEditor', () => {
     await expect(promise).resolves.toBe('{"a":1}');
   });
 
+  it('a whitespace-only VISUAL falls through to EDITOR', async () => {
+    const { spawn, calls, children } = fakeSpawn();
+    const promise = openInEditor('x', { VISUAL: '   ', EDITOR: 'nano' }, { spawn });
+    await waitForSpawn(calls);
+    expect(calls[0]!.command).toBe('nano');
+    children[0]!.emit('exit', 0, null);
+    await promise;
+  });
+
+  it('a whitespace-only VISUAL and EDITOR fall through to vi', async () => {
+    const { spawn, calls, children } = fakeSpawn();
+    const promise = openInEditor('x', { VISUAL: ' ', EDITOR: '\t' }, { spawn });
+    await waitForSpawn(calls);
+    expect(calls[0]!.command).toBe('vi');
+    children[0]!.emit('exit', 0, null);
+    await promise;
+  });
+
   it('VISUAL wins over EDITOR', async () => {
     const { spawn, calls, children } = fakeSpawn();
     const promise = openInEditor(

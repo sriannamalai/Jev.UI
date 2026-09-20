@@ -33,7 +33,12 @@ export async function openInEditor(
   env: NodeJS.ProcessEnv = process.env,
   deps: OpenInEditorDeps = defaultDeps,
 ): Promise<string> {
-  const command = (env.VISUAL || env.EDITOR || 'vi').trim();
+  // A whitespace-only $VISUAL/$EDITOR is not a command: fall through to the
+  // next candidate (and ultimately `vi`) rather than spawning nothing.
+  const command =
+    [env.VISUAL, env.EDITOR, 'vi']
+      .map((candidate) => (candidate ?? '').trim())
+      .find((candidate) => candidate.length > 0) ?? 'vi';
   const [program, ...args] = command.split(/\s+/).filter((part) => part.length > 0);
 
   const dir = await mkdtemp(join(tmpdir(), 'jev-'));
