@@ -4,6 +4,7 @@ import {
   blankQuestion,
   deleteQuestion,
   duplicateQuestion,
+  isValidQuestionId,
   moveQuestion,
   newRequest,
   QUESTION_ID_RE,
@@ -79,6 +80,21 @@ test('uniqueId appends _2, _3 for a taken base', () => {
   expect(uniqueId(req, 'd')).toBe('d_3');
 });
 
+test('uniqueId treats the inherited id "constructor" as available (own-property check, not `in`)', () => {
+  const req = baseRequest();
+  expect(uniqueId(req, 'constructor')).toBe('constructor');
+});
+
+test('uniqueId treats an actually-owned "constructor" question as taken', () => {
+  const req: Request = { state: '', questions: { constructor: blankQuestion('noul') } };
+  expect(uniqueId(req, 'constructor')).toBe('constructor_2');
+});
+
+test('uniqueId never returns "__proto__"', () => {
+  const req: Request = { state: '', questions: { a: blankQuestion('noul') } };
+  expect(uniqueId(req, '__proto__')).not.toBe('__proto__');
+});
+
 test('addQuestion appends noul_1, then noul_2', () => {
   const req = deepFreeze(baseRequest());
   const first = addQuestion(req, 'noul');
@@ -111,6 +127,12 @@ test('deleteQuestion removes the given id', () => {
 test('deleteQuestion of the last remaining question is a no-op returning the same request', () => {
   const req = deepFreeze<Request>({ state: '', questions: { only: blankQuestion('noul') } });
   const next = deleteQuestion(req, 'only');
+  expect(next).toBe(req);
+});
+
+test('deleteQuestion of the inherited id "constructor" is a no-op (own-property check)', () => {
+  const req = deepFreeze(baseRequest());
+  const next = deleteQuestion(req, 'constructor');
   expect(next).toBe(req);
 });
 
@@ -161,9 +183,37 @@ test('renameQuestion to "1abc" fails with invalid', () => {
   expect(renameQuestion(req, 'a', '1abc')).toEqual({ ok: false, reason: 'invalid' });
 });
 
+test('renameQuestion to "toString" succeeds (own-property check, not `in`)', () => {
+  const req = deepFreeze(baseRequest());
+  const result = renameQuestion(req, 'a', 'toString');
+  expect(result.ok).toBe(true);
+  if (result.ok) {
+    expect(questionIds(result.request)).toContain('toString');
+  }
+});
+
+test('renameQuestion to "__proto__" fails with invalid', () => {
+  const req = deepFreeze(baseRequest());
+  expect(renameQuestion(req, 'a', '__proto__')).toEqual({ ok: false, reason: 'invalid' });
+});
+
+test('renameQuestion to an actually-owned "constructor" id fails with duplicate', () => {
+  const req = deepFreeze<Request>({
+    state: '',
+    questions: { a: blankQuestion('noul'), constructor: blankQuestion('noul') },
+  });
+  expect(renameQuestion(req, 'a', 'constructor')).toEqual({ ok: false, reason: 'duplicate' });
+});
+
 test('QUESTION_ID_RE accepts valid ids and rejects leading digits', () => {
   expect(QUESTION_ID_RE.test('is_urgent')).toBe(true);
   expect(QUESTION_ID_RE.test('1abc')).toBe(false);
+});
+
+test('isValidQuestionId accepts normal ids, rejects invalid syntax and "__proto__"', () => {
+  expect(isValidQuestionId('is_urgent')).toBe(true);
+  expect(isValidQuestionId('1abc')).toBe(false);
+  expect(isValidQuestionId('__proto__')).toBe(false);
 });
 
 test('questionIds returns keys in order', () => {

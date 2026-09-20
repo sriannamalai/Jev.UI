@@ -2,6 +2,13 @@ import { DEFAULT_MODEL, type Question, type QuestionType, type Request } from '.
 
 export const QUESTION_ID_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
+// `__proto__` matches QUESTION_ID_RE's syntax but can never be a safe object
+// key: spreading or assigning it sets the prototype instead of creating an
+// own property. Reject it everywhere a question id is validated.
+export function isValidQuestionId(id: string): boolean {
+  return QUESTION_ID_RE.test(id) && id !== '__proto__';
+}
+
 export function newRequest(): Request {
   return {
     state: '',
@@ -22,14 +29,14 @@ export function blankQuestion(type: QuestionType): Question {
 }
 
 export function uniqueId(request: Request, base: string): string {
-  if (!(base in request.questions)) return base;
+  if (!Object.hasOwn(request.questions, base) && base !== '__proto__') return base;
 
   const match = /^(.*)_(\d+)$/.exec(base);
   const prefix = match ? (match[1] ?? base) : base;
   let n = match ? Number(match[2] ?? '1') + 1 : 2;
 
   let candidate = `${prefix}_${n}`;
-  while (candidate in request.questions) {
+  while (Object.hasOwn(request.questions, candidate) || candidate === '__proto__') {
     n += 1;
     candidate = `${prefix}_${n}`;
   }
@@ -51,7 +58,7 @@ export function updateQuestion(request: Request, id: string, q: Question): Reque
 
 export function deleteQuestion(request: Request, id: string): Request {
   const ids = Object.keys(request.questions);
-  if (ids.length <= 1 || !(id in request.questions)) return request;
+  if (ids.length <= 1 || !Object.hasOwn(request.questions, id)) return request;
 
   const entries = Object.entries(request.questions).filter(([k]) => k !== id);
   return { ...request, questions: Object.fromEntries(entries) };
@@ -97,8 +104,10 @@ export function renameQuestion(
   id: string,
   newId: string,
 ): { ok: true; request: Request } | { ok: false; reason: 'invalid' | 'duplicate' } {
-  if (!QUESTION_ID_RE.test(newId)) return { ok: false, reason: 'invalid' };
-  if (newId !== id && newId in request.questions) return { ok: false, reason: 'duplicate' };
+  if (!isValidQuestionId(newId)) return { ok: false, reason: 'invalid' };
+  if (newId !== id && Object.hasOwn(request.questions, newId)) {
+    return { ok: false, reason: 'duplicate' };
+  }
   if (newId === id) return { ok: true, request };
 
   const entries = Object.entries(request.questions).map(([k, v]): [string, Question] =>

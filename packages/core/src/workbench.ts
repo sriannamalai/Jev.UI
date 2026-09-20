@@ -29,6 +29,12 @@ export interface WorkbenchState {
   result: RunResult | undefined;
   stale: boolean;
   running: boolean;
+  // The exact `Request` reference that was current when the in-flight run
+  // started. Reference identity against `request` (not deep-equality) is
+  // what lets `runOk` tell whether an edit landed while the run was in
+  // flight, since every real edit produces a new `Request` object and
+  // every no-op edit keeps the old one.
+  pendingRequest: Request | undefined;
   error: { kind: JevErrorKind; message: string; path?: string } | undefined;
 }
 
@@ -60,12 +66,20 @@ export function initialWorkbench(request?: Request): WorkbenchState {
     result: undefined,
     stale: false,
     running: false,
+    pendingRequest: undefined,
     error: undefined,
   };
 }
 
 export function canRun(s: WorkbenchState): boolean {
   return !s.running && RequestSchema.safeParse(s.request).success;
+}
+
+/** The snapshot both UIs must send when running: the request as it was at
+ * `runStart`, never a later edit. Falls back to the live request when no
+ * run is in flight. */
+export function requestToRun(s: WorkbenchState): Request {
+  return s.pendingRequest ?? s.request;
 }
 
 const ID_PATTERN = QUESTION_ID_RE.source.slice(1, -1);
@@ -140,7 +154,7 @@ export function workbenchReducer(s: WorkbenchState, a: WorkbenchAction): Workben
     }
 
     case 'updateQuestion': {
-      if (!(a.id in s.request.questions)) return s;
+      if (!Object.hasOwn(s.request.questions, a.id)) return s;
       const request = updateQuestion(s.request, a.id, a.question);
       return applyRequestChange(s, request);
     }
@@ -196,6 +210,7 @@ export function workbenchReducer(s: WorkbenchState, a: WorkbenchAction): Workben
         result: undefined,
         stale: false,
         running: false,
+        pendingRequest: undefined,
         error: undefined,
       };
     }
@@ -206,12 +221,18 @@ export function workbenchReducer(s: WorkbenchState, a: WorkbenchAction): Workben
 
     case 'runStart': {
       if (!canRun(s)) return s;
-      return { ...s, running: true, error: undefined };
+      return { ...s, running: true, pendingRequest: s.request, error: undefined };
     }
 
     case 'runOk': {
       if (!s.running) return s;
-      return { ...s, result: a.result, stale: false, running: false };
+      return {
+        ...s,
+        result: a.result,
+        running: false,
+        pendingRequest: undefined,
+        stale: s.request !== s.pendingRequest,
+      };
     }
 
     case 'runFail': {
@@ -220,6 +241,7 @@ export function workbenchReducer(s: WorkbenchState, a: WorkbenchAction): Workben
         ...s,
         error: a.error,
         running: false,
+        pendingRequest: undefined,
         stale: s.result !== undefined ? true : s.stale,
       };
     }
@@ -227,6 +249,11 @@ export function workbenchReducer(s: WorkbenchState, a: WorkbenchAction): Workben
     case 'dismissError': {
       if (s.error === undefined) return s;
       return { ...s, error: undefined };
+    }
+
+    default: {
+      const _exhaustive: never = a;
+      return _exhaustive;
     }
   }
 }

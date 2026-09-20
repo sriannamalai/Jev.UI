@@ -6,6 +6,7 @@ import {
   canRun,
   errorTarget,
   initialWorkbench,
+  requestToRun,
   workbenchReducer,
   type WorkbenchState,
 } from '../src/workbench.js';
@@ -56,6 +57,7 @@ test('initialWorkbench() uses newRequest() and selects its first question', () =
   expect(s.result).toBeUndefined();
   expect(s.stale).toBe(false);
   expect(s.running).toBe(false);
+  expect(s.pendingRequest).toBeUndefined();
   expect(s.error).toBeUndefined();
 });
 
@@ -64,6 +66,7 @@ test('initialWorkbench(request) uses the given request and selects its first id'
   const s = initialWorkbench(req);
   expect(s.request).toBe(req);
   expect(s.selectedId).toBe('a');
+  expect(s.pendingRequest).toBeUndefined();
 });
 
 // --- request-changing actions: dirty / stale / error ---------------------
@@ -146,6 +149,13 @@ test('updateQuestion with an unknown id is a no-op (same state reference)', () =
   const s = frozenState();
   const q: Question = { type: 'noul', instructions: 'x' };
   const next = workbenchReducer(s, { type: 'updateQuestion', id: 'does-not-exist', question: q });
+  expect(next).toBe(s);
+});
+
+test('updateQuestion of the inherited id "constructor" is a no-op (own-property check, not `in`)', () => {
+  const s = frozenState();
+  const q: Question = { type: 'noul', instructions: 'x' };
+  const next = workbenchReducer(s, { type: 'updateQuestion', id: 'constructor', question: q });
   expect(next).toBe(s);
 });
 
@@ -333,18 +343,42 @@ test('runStart sets running:true and clears error', () => {
   expect(next.error).toBeUndefined();
 });
 
+test('runStart snapshots the current request into pendingRequest', () => {
+  const s = frozenState();
+  const next = workbenchReducer(s, { type: 'runStart' });
+  expect(next.pendingRequest).toBe(s.request);
+});
+
 test('runStart is ignored (same state reference) when the request cannot run', () => {
   const s = frozenState({ request: { state: '', questions: {} } });
   const next = workbenchReducer(s, { type: 'runStart' });
   expect(next).toBe(s);
 });
 
-test('runOk sets result and stale:false, running:false', () => {
-  const s = frozenState({ running: true, stale: true });
-  const next = workbenchReducer(s, { type: 'runOk', result: runResult });
+test('runOk with no edit during the run sets result and stale:false, running:false', () => {
+  const started = workbenchReducer(frozenState({ stale: true }), { type: 'runStart' });
+  const next = workbenchReducer(started, { type: 'runOk', result: runResult });
   expect(next.result).toBe(runResult);
   expect(next.stale).toBe(false);
   expect(next.running).toBe(false);
+  expect(next.pendingRequest).toBeUndefined();
+});
+
+test('a request edit that lands while running marks the runOk result stale', () => {
+  const started = workbenchReducer(frozenState(), { type: 'runStart' });
+  const edited = workbenchReducer(started, { type: 'setModel', model: 'other-model' });
+  const next = workbenchReducer(edited, { type: 'runOk', result: runResult });
+  expect(next.stale).toBe(true);
+  expect(next.result).toBe(runResult);
+  expect(next.dirty).toBe(true);
+});
+
+test('a no-op edit while running does not mark the runOk result stale', () => {
+  const started = workbenchReducer(frozenState(), { type: 'runStart' });
+  const edited = workbenchReducer(started, { type: 'moveQuestion', id: 'a', delta: -1 });
+  expect(edited.request).toBe(started.request);
+  const next = workbenchReducer(edited, { type: 'runOk', result: runResult });
+  expect(next.stale).toBe(false);
 });
 
 test('runOk is ignored (same state reference) when not running', () => {
@@ -353,12 +387,16 @@ test('runOk is ignored (same state reference) when not running', () => {
   expect(next).toBe(s);
 });
 
-test('runFail sets error, running:false, and marks any previous result stale', () => {
-  const s = frozenState({ running: true, result: runResult, stale: false });
+test('runFail sets error, running:false, clears pendingRequest, and marks any previous result stale', () => {
+  const started = workbenchReducer(frozenState({ result: runResult, stale: false }), {
+    type: 'runStart',
+  });
+  const edited = workbenchReducer(started, { type: 'setModel', model: 'other-model' });
   const error = { kind: 'timeout' as const, message: 'timed out' };
-  const next = workbenchReducer(s, { type: 'runFail', error });
+  const next = workbenchReducer(edited, { type: 'runFail', error });
   expect(next.error).toBe(error);
   expect(next.running).toBe(false);
+  expect(next.pendingRequest).toBeUndefined();
   expect(next.result).toBe(runResult);
   expect(next.stale).toBe(true);
 });
@@ -368,6 +406,30 @@ test('runFail is ignored (same state reference) when not running', () => {
   const error = { kind: 'timeout' as const, message: 'timed out' };
   const next = workbenchReducer(s, { type: 'runFail', error });
   expect(next).toBe(s);
+});
+
+test('a runOk arriving after a loadSet is ignored because running is already false', () => {
+  const started = workbenchReducer(frozenState(), { type: 'runStart' });
+  const set: QuestionSet = { name: 'my-set', questions: { x: blankQuestion('noul') } };
+  const loaded = workbenchReducer(started, { type: 'loadSet', set });
+  expect(loaded.running).toBe(false);
+  expect(loaded.pendingRequest).toBeUndefined();
+  const next = workbenchReducer(loaded, { type: 'runOk', result: runResult });
+  expect(next).toBe(loaded);
+});
+
+// --- requestToRun ------------------------------------------------------------
+
+test('requestToRun returns the live request when no run is in flight', () => {
+  const s = frozenState();
+  expect(requestToRun(s)).toBe(s.request);
+});
+
+test('requestToRun returns the pendingRequest snapshot during a run, even after a later edit', () => {
+  const started = workbenchReducer(frozenState(), { type: 'runStart' });
+  const edited = workbenchReducer(started, { type: 'setModel', model: 'other-model' });
+  expect(requestToRun(edited)).toBe(started.request);
+  expect(requestToRun(edited)).not.toBe(edited.request);
 });
 
 // --- dismissError --------------------------------------------------------------
@@ -431,6 +493,7 @@ test("errorTarget('questions.q') and ('questions.q.type') target only the questi
 
 test('workbenchReducer never mutates its (frozen) input state', () => {
   const s = frozenState({ error: { kind: 'validation', message: 'bad' }, result: runResult });
+  const runningState = frozenState({ running: true, pendingRequest: s.request, result: runResult });
   expect(() => {
     workbenchReducer(s, { type: 'setModel', model: 'other' });
     workbenchReducer(s, { type: 'setState', state: 'x' });
@@ -445,5 +508,11 @@ test('workbenchReducer never mutates its (frozen) input state', () => {
     workbenchReducer(s, { type: 'saved', name: 'n' });
     workbenchReducer(s, { type: 'runStart' });
     workbenchReducer(s, { type: 'dismissError' });
+    workbenchReducer(s, {
+      type: 'loadSet',
+      set: { name: 'n', questions: { x: blankQuestion('noul') } },
+    });
+    workbenchReducer(runningState, { type: 'runOk', result: runResult });
+    workbenchReducer(runningState, { type: 'runFail', error: { kind: 'timeout', message: 'x' } });
   }).not.toThrow();
 });
