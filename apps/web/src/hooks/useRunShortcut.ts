@@ -8,6 +8,10 @@ export function useRunShortcut(run: () => unknown, enabled: boolean): void {
     function onKeyDown(event: KeyboardEvent) {
       if (!(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
       if (!enabled) return;
+      // Ignore an event another handler (e.g. the JSON pane's own Mod-Enter
+      // keymap) already acted on, a held-key repeat, or one still part of an
+      // IME composition — any of these would otherwise double-fire `run()`.
+      if (event.defaultPrevented || event.repeat || event.isComposing) return;
       event.preventDefault();
       run();
     }

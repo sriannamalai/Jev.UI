@@ -7,11 +7,10 @@ afterEach(() => {
 });
 
 // jsdom implements `Range` but not the layout-measurement methods on it.
-// CodeMirror 6 (the JSON pane, Task 12b-1) calls these while measuring
-// cursor/selection position on every document change; without a stub they
-// throw inside CodeMirror's internal measure pass. The exact geometry
-// doesn't matter in tests — an empty/zero rect is enough to let the
-// measure pass complete.
+// CodeMirror 6 (the JSON pane) calls these while measuring cursor/selection
+// position on every document change; without a stub they throw inside
+// CodeMirror's internal measure pass. The exact geometry doesn't matter in
+// tests — an empty/zero rect is enough to let the measure pass complete.
 if (typeof Range !== 'undefined') {
   const zeroRect: DOMRect = {
     x: 0,

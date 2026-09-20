@@ -15,7 +15,14 @@ export function SetPicker(props: {
   const [pendingName, setPendingName] = useState<string | undefined>(undefined);
 
   function requestLoad(name: string) {
-    if (name === '' || name === current) return;
+    if (name === '') return;
+    if (name === current) {
+      // Re-selecting the current set is normally a no-op, but when dirty it
+      // is the only way to reload it and discard the in-progress edits — so
+      // route it through the same confirm as switching to a different set.
+      if (dirty) setPendingName(name);
+      return;
+    }
     if (dirty) {
       setPendingName(name);
       return;

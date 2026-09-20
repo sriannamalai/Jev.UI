@@ -3,8 +3,31 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, render, screen } from '@testing-library/react';
 import { EditorView } from '@codemirror/view';
 import { serializeRequest, type Request } from '@jev-ui/core/browser';
+import type { createApi } from '../src/api.js';
 import { WorkbenchProvider, useWorkbench } from '../src/store.js';
 import { findQuestionRange, JsonPane, JsonPaneHeader } from '../src/components/index.js';
+
+type Api = ReturnType<typeof createApi>;
+
+function makeApi(overrides: Partial<Api> = {}): Api {
+  return {
+    health: vi.fn(async () => ({ keyConfigured: true, version: '1.0.0', setsDir: '/sets' })),
+    models: vi.fn(async () => []),
+    run: vi.fn(async () => ({
+      answers: {},
+      model: 'jev-latest',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 5,
+      costUsd: 0.001,
+    })),
+    listSets: vi.fn(async () => []),
+    getSet: vi.fn(async () => {
+      throw new Error('not used in this test');
+    }),
+    putSet: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
 
 describe('findQuestionRange', () => {
   const request: Request = {
@@ -284,5 +307,309 @@ describe('JsonPane', () => {
     });
 
     expect(screen.getByTestId('err-message')).not.toHaveTextContent('none');
+  });
+
+  function FormProbe() {
+    const { dispatch } = useWorkbench();
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          const state = e.currentTarget.dataset.state ?? '';
+          dispatch({ type: 'wb', action: { type: 'setState', state } });
+        }}
+        data-testid="form-probe"
+      >
+        edit-from-form
+      </button>
+    );
+  }
+
+  function setFormState(text: string): void {
+    const probe = screen.getByTestId('form-probe');
+    probe.dataset.state = text;
+    act(() => {
+      probe.click();
+    });
+  }
+
+  it('keeps the editor doc in sync with the store across T0 -> T1 -> T0 (return to the exact initial text)', () => {
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <FormProbe />
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const t0 = serializeRequest(quickStartRequest);
+    expect(currentDoc(host)).toBe(t0);
+
+    setFormState('t1');
+    expect(currentDoc(host)).toContain('t1');
+    expect(currentDoc(host)).not.toBe(t0);
+
+    // Back to the ORIGINAL state text ("hi"), so the store's `jsonText` is
+    // byte-identical to what the pane mounted with — the exact case a
+    // "last dispatched" ref (rather than the doc's own content) gets wrong.
+    setFormState('hi');
+    expect(currentDoc(host)).toBe(t0);
+  });
+
+  it('keeps the editor doc in sync with the store across T0 -> T1 -> T2 -> T1 (a value the editor previously mirrored)', () => {
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <FormProbe />
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const view = EditorView.findFromDOM(host)!;
+
+    // T1 is reached by TYPING in the editor (so the "last dispatched" ref, if
+    // one existed, would remember this exact text) and flushing the debounce.
+    // Serialised the same way the store would re-serialise it later, so a
+    // subsequent form edit back to the same request produces byte-identical
+    // text.
+    const t1 = serializeRequest({
+      state: 'typed-once',
+      model: quickStartRequest.model,
+      questions: quickStartRequest.questions,
+    });
+    act(() => {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: t1 },
+        userEvent: 'input.type',
+      });
+    });
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+    expect(currentDoc(host)).toBe(t1);
+
+    // T2: a form edit re-serialises to a different text.
+    setFormState('form-edit');
+    expect(currentDoc(host)).toContain('form-edit');
+    expect(currentDoc(host)).not.toBe(t1);
+
+    // Back to T1: a form edit whose serialisation happens to be
+    // byte-identical to the text the editor previously mirrored.
+    setFormState('typed-once');
+    expect(currentDoc(host)).toBe(t1);
+  });
+
+  it('does not let an external (form) change clobber a pending, un-flushed editor edit', () => {
+    function JsonTextReadout() {
+      const { state } = useWorkbench();
+      return <pre data-testid="json-text">{state.jsonText}</pre>;
+    }
+
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <FormProbe />
+        <JsonTextReadout />
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const view = EditorView.findFromDOM(host)!;
+
+    act(() => {
+      view.dispatch({
+        changes: {
+          from: 0,
+          to: view.state.doc.length,
+          insert: '{"state":"typed by user","model":"jev-latest","questions":{}}',
+        },
+        userEvent: 'input.type',
+      });
+    });
+
+    // A form-originated (external) change arrives while the debounce is
+    // still armed — it must not overwrite what the user just typed.
+    setFormState('should not appear yet');
+    expect(currentDoc(host)).toContain('typed by user');
+    expect(currentDoc(host)).not.toContain('should not appear yet');
+
+    act(() => {
+      vi.advanceTimersByTime(150);
+    });
+
+    // Once the debounce flushes, the doc and the store agree again.
+    expect(currentDoc(host)).toBe(screen.getByTestId('json-text').textContent);
+    expect(currentDoc(host)).toContain('typed by user');
+  });
+
+  it('does not dispatch a stale jsonEdited on blur after an external replacement', () => {
+    function RequestReadout() {
+      const { state } = useWorkbench();
+      return <pre data-testid="request">{JSON.stringify(state.wb.request)}</pre>;
+    }
+
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <FormProbe />
+        <RequestReadout />
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const view = EditorView.findFromDOM(host)!;
+
+    setFormState('t1');
+    setFormState('');
+    // Regardless of the sync bug, the doc must reflect the current store
+    // text before any blur happens.
+    expect(currentDoc(host)).toBe(view.state.doc.toString());
+
+    const before = screen.getByTestId('request').textContent;
+    act(() => {
+      view.contentDOM.dispatchEvent(new FocusEvent('blur'));
+    });
+    expect(screen.getByTestId('request').textContent).toBe(before);
+  });
+});
+
+describe('JsonPane Mod-Enter run shortcut', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('runs the request and leaves the doc unchanged (no blank line inserted)', async () => {
+    const run = vi.fn<Api['run']>(async () => ({
+      answers: {},
+      model: 'jev-latest',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 5,
+      costUsd: 0.001,
+    }));
+    const api = makeApi({ run });
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest} api={api}>
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const view = EditorView.findFromDOM(host)!;
+    const before = view.state.doc.toString();
+
+    await act(async () => {
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(view.state.doc.toString()).toBe(before);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes a just-typed edit and sends the NEW request, not the previous one', async () => {
+    const run = vi.fn<Api['run']>(async () => ({
+      answers: {},
+      model: 'jev-latest',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 5,
+      costUsd: 0.001,
+    }));
+    const api = makeApi({ run });
+    const { container } = render(
+      <WorkbenchProvider initial={quickStartRequest} api={api}>
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+    const view = EditorView.findFromDOM(host)!;
+
+    const newText = JSON.stringify({
+      state: 'freshly typed',
+      model: 'jev-latest',
+      questions: quickStartRequest.questions,
+    });
+
+    act(() => {
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: newText },
+        userEvent: 'input.type',
+      });
+    });
+
+    await act(async () => {
+      view.contentDOM.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ state: 'freshly typed' }));
+  });
+});
+
+describe('JsonPane selection highlight wiring', () => {
+  it('moves the .cm-jev-selected decoration to the newly selected question on a real editor', () => {
+    function SelectProbe() {
+      const { dispatch } = useWorkbench();
+      return (
+        <button
+          type="button"
+          onClick={() => dispatch({ type: 'wb', action: { type: 'select', id: 'is_urgent' } })}
+        >
+          select-is-urgent
+        </button>
+      );
+    }
+
+    const request: Request = {
+      state: 'hi',
+      model: 'jev-latest',
+      questions: {
+        department: {
+          type: 'choice',
+          instructions: 'Which team should handle this',
+          criteria: { billing: 'Payment issues', technical: 'Bugs' },
+        },
+        is_urgent: { type: 'noul', instructions: 'urgent?' },
+      },
+    };
+
+    const { container } = render(
+      <WorkbenchProvider initial={request}>
+        <SelectProbe />
+        <JsonPane />
+      </WorkbenchProvider>,
+    );
+    const host = container.querySelector('[aria-label="Request JSON"]') as HTMLElement;
+
+    // The workbench selects the first question by default.
+    const initialHighlighted = Array.from(host.querySelectorAll('.cm-jev-selected')).map(
+      (el) => el.textContent ?? '',
+    );
+    expect(initialHighlighted.join('\n')).toContain('department');
+
+    act(() => {
+      screen.getByText('select-is-urgent').click();
+    });
+
+    const highlighted = Array.from(host.querySelectorAll('.cm-jev-selected')).map(
+      (el) => el.textContent ?? '',
+    );
+    expect(highlighted.length).toBeGreaterThan(0);
+    const joined = highlighted.join('\n');
+    expect(joined).toContain('is_urgent');
+    expect(joined).not.toContain('department');
   });
 });

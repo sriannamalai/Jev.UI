@@ -1,4 +1,4 @@
-// The application shell (Task 12c): TopBar + Build/JSON/Results columns +
+// The application shell: TopBar + Build/JSON/Results columns +
 // StatusBar assembled by `Workbench`, and the narrow-viewport tab fallback
 // for Split mode. The JSON pane's CodeMirror instance is heavy and already
 // has its own tests (test/json-pane.test.tsx); it's mocked here to a plain

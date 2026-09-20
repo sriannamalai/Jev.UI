@@ -88,6 +88,10 @@ function SelectedProbe() {
   return <pre data-testid="selected">{state.wb.selectedId ?? ''}</pre>;
 }
 
+function resultBlock(name: string): HTMLElement {
+  return screen.getByText(name).closest('.res') as HTMLElement;
+}
+
 function EditButton() {
   const { dispatch } = useWorkbench();
   return (
@@ -125,7 +129,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'department result' });
+    const block = resultBlock('department result');
     expect(block.querySelector('.answer')?.textContent).toContain('technical');
 
     const meters = within(block).getAllByRole('meter');
@@ -146,14 +150,10 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const departmentChip = screen
-      .getByRole('button', { name: 'department result' })
-      .querySelector('.conf');
+    const departmentChip = resultBlock('department result').querySelector('.conf');
     expect(departmentChip?.className).toContain('mid');
 
-    const frustrationChip = screen
-      .getByRole('button', { name: 'frustration result' })
-      .querySelector('.conf');
+    const frustrationChip = resultBlock('frustration result').querySelector('.conf');
     expect(frustrationChip?.className).not.toContain('mid');
   });
 
@@ -166,7 +166,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'frustration result' });
+    const block = resultBlock('frustration result');
     const marker = block.querySelector<HTMLElement>('.mark');
     expect(marker?.style.left).toBe('50%');
     expect(block.querySelector('.answer')?.textContent).toContain('Frustrated but civil');
@@ -204,7 +204,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'frustration result' });
+    const block = resultBlock('frustration result');
     const marker = block.querySelector<HTMLElement>('.mark');
     expect(marker?.style.left).toBe('80%');
     expect(block.querySelector('.answer')?.textContent).toContain('Very angry, strong language');
@@ -219,7 +219,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'is_urgent result' });
+    const block = resultBlock('is_urgent result');
     const meter = within(block).getByRole('meter');
     expect(meter.getAttribute('aria-valuenow')).toBe('0.99');
     expect(block.querySelector('.answer')?.textContent).toContain('yes');
@@ -238,7 +238,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'is_urgent result' });
+    const block = resultBlock('is_urgent result');
     expect(block.querySelector('.answer')?.textContent).toContain('no');
   });
 
@@ -251,10 +251,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const names = screen
-      .getAllByRole('button')
-      .map((el) => el.getAttribute('aria-label'))
-      .filter((name): name is string => name !== null && name.endsWith(' result'));
+    const names = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent);
     expect(names).toEqual(['department result', 'frustration result', 'is_urgent result']);
   });
 
@@ -271,7 +268,7 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    expect(screen.queryByRole('button', { name: 'ghost result' })).not.toBeInTheDocument();
+    expect(screen.queryByText('ghost result')).not.toBeInTheDocument();
   });
 
   it('shows the stale chip once the request changes after a run', async () => {
@@ -314,11 +311,11 @@ describe('ResultsPane', () => {
     await runToOk();
 
     const user = userEvent.setup();
-    const frustrationBlock = screen.getByRole('button', { name: 'frustration result' });
+    const frustrationBlock = resultBlock('frustration result');
     await user.click(frustrationBlock);
     expect(screen.getByTestId('selected').textContent).toBe('frustration');
 
-    const departmentBlock = screen.getByRole('button', { name: 'department result' });
+    const departmentBlock = resultBlock('department result');
     departmentBlock.focus();
     await user.keyboard('{Enter}');
     expect(screen.getByTestId('selected').textContent).toBe('department');
@@ -345,11 +342,69 @@ describe('ResultsPane', () => {
     );
     await runToOk();
 
-    const block = screen.getByRole('button', { name: 'department result' });
+    const block = resultBlock('department result');
     const meters = within(block).getAllByRole('meter');
     const nanMeter = meters.find((m) => m.getAttribute('aria-label') === 'technical probability');
     expect(nanMeter?.querySelector('i')?.style.width).toBe('0%');
     expect(within(block).getByText('–')).toBeInTheDocument();
+  });
+
+  it('does not wrap any meter in a role="button" container', async () => {
+    render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <ResultsPane />
+        <RunActions result={quickStartResult} />
+      </WorkbenchProvider>,
+    );
+    await runToOk();
+
+    const meters = screen.getAllByRole('meter');
+    expect(meters.length).toBeGreaterThan(0);
+    for (const meter of meters) {
+      expect(meter.closest('[role="button"]')).toBeNull();
+    }
+  });
+
+  it('marks only the selected block with aria-current and the active class', async () => {
+    render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <ResultsPane />
+        <RunActions result={quickStartResult} />
+      </WorkbenchProvider>,
+    );
+    await runToOk();
+
+    const department = resultBlock('department result');
+    const frustration = resultBlock('frustration result');
+    const urgent = resultBlock('is_urgent result');
+
+    const user = userEvent.setup();
+    await user.click(frustration);
+
+    expect(frustration).toHaveAttribute('aria-current', 'true');
+    expect(frustration.className).toContain('active');
+
+    expect(department).not.toHaveAttribute('aria-current');
+    expect(department.className).not.toContain('active');
+    expect(urgent).not.toHaveAttribute('aria-current');
+    expect(urgent.className).not.toContain('active');
+  });
+
+  it('selects a focused block with Space as well as Enter', async () => {
+    render(
+      <WorkbenchProvider initial={quickStartRequest}>
+        <ResultsPane />
+        <RunActions result={quickStartResult} />
+        <SelectedProbe />
+      </WorkbenchProvider>,
+    );
+    await runToOk();
+
+    const user = userEvent.setup();
+    const urgentBlock = resultBlock('is_urgent result');
+    urgentBlock.focus();
+    await user.keyboard(' ');
+    expect(screen.getByTestId('selected').textContent).toBe('is_urgent');
   });
 });
 

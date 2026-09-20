@@ -12,9 +12,11 @@
 //   undo/redo), the whole document is replaced in one transaction tagged
 //   with `externalUpdate` so the update listener below knows to ignore it.
 import { useEffect, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import {
   Annotation,
   EditorSelection,
+  Prec,
   StateEffect,
   StateField,
   type Extension,
@@ -126,19 +128,19 @@ function replaceDoc(view: EditorView, text: string): void {
 }
 
 export function JsonPane() {
-  const { state, dispatch } = useWorkbench();
+  const { state, dispatch, run } = useWorkbench();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
-  const lastDispatchedRef = useRef(state.jsonText);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const errorRef = useRef(state.jsonError);
+  const runRef = useRef(run);
+  runRef.current = run;
 
   function flushPending(view: EditorView): void {
     if (debounceRef.current === null) return;
     clearTimeout(debounceRef.current);
     debounceRef.current = null;
     const text = view.state.doc.toString();
-    lastDispatchedRef.current = text;
     dispatch({ type: 'jsonEdited', text });
   }
 
@@ -170,7 +172,6 @@ export function JsonPane() {
       debounceRef.current = setTimeout(() => {
         debounceRef.current = null;
         const text = update.view.state.doc.toString();
-        lastDispatchedRef.current = text;
         dispatch({ type: 'jsonEdited', text });
       }, JSON_EDIT_DEBOUNCE_MS);
     });
@@ -180,6 +181,23 @@ export function JsonPane() {
       parent: host,
       extensions: [
         basicSetup,
+        Prec.highest(
+          keymap.of([
+            {
+              key: 'Mod-Enter',
+              run: (runView) => {
+                // Flush first so the run sends what the user just typed, not
+                // the previous state — `flushSync` forces the dispatch's
+                // reducer + the provider's layout effect to commit before we
+                // read the store again in `runRef.current()`, so there is no
+                // stale-ref race to defer with a microtask/timeout.
+                flushSync(() => flushPending(runView));
+                void runRef.current();
+                return true;
+              },
+            },
+          ]),
+        ),
         keymap.of([indentWithTab]),
         json(),
         lintSource,
@@ -224,10 +242,16 @@ export function JsonPane() {
     forceLinting(view);
   }, [state.jsonError]);
 
+  // store -> doc: replace the doc whenever it no longer matches
+  // `state.jsonText`, UNLESS the editor has a pending, un-flushed user edit
+  // (the debounce timer is armed) — in that case the in-flight keystrokes
+  // win and the replacement is skipped until they're flushed. This re-checks
+  // the doc itself rather than a "last dispatched" ref, so a value the store
+  // revisits (T1 -> T0 where T0 was already seen) is still applied.
   useEffect(() => {
     const view = viewRef.current;
     if (view === null) return;
-    if (state.jsonText === lastDispatchedRef.current) return;
+    if (debounceRef.current !== null) return;
     replaceDoc(view, state.jsonText);
   }, [state.jsonText]);
 

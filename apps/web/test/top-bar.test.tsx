@@ -150,6 +150,65 @@ describe('TopBar', () => {
     expect(api.getSet).toHaveBeenCalledWith('triage');
   });
 
+  it('re-selecting the current set while dirty offers to discard and reload it', async () => {
+    function Dirtier() {
+      const { dispatch } = useWorkbench();
+      return (
+        <button
+          type="button"
+          onClick={() => dispatch({ type: 'wb', action: { type: 'setState', state: 'edited' } })}
+        >
+          make-dirty
+        </button>
+      );
+    }
+    const api = makeApi({
+      listSets: vi.fn(async () => [{ name: 'triage', questionCount: 1, valid: true }]),
+      getSet: vi.fn(async () => triageSet),
+    });
+    renderBar(api, <Dirtier />);
+    await screen.findByRole('option', { name: 'triage' });
+
+    const select = screen.getByLabelText('Set');
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'triage' } });
+    });
+    expect(api.getSet).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      screen.getByText('make-dirty').click();
+    });
+
+    // Not dirty against a DIFFERENT value would show the confirm; re-picking
+    // the value that is already selected must still surface it while dirty.
+    fireEvent.change(select, { target: { value: 'triage' } });
+    expect(screen.getByText('Discard unsaved changes?')).toBeInTheDocument();
+
+    await act(async () => {
+      screen.getByText('Load').click();
+    });
+    expect(api.getSet).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-selecting the current set while clean stays a no-op', async () => {
+    const api = makeApi({
+      listSets: vi.fn(async () => [{ name: 'triage', questionCount: 1, valid: true }]),
+      getSet: vi.fn(async () => triageSet),
+    });
+    renderBar(api);
+    await screen.findByRole('option', { name: 'triage' });
+
+    const select = screen.getByLabelText('Set');
+    await act(async () => {
+      fireEvent.change(select, { target: { value: 'triage' } });
+    });
+    expect(api.getSet).toHaveBeenCalledTimes(1);
+
+    fireEvent.change(select, { target: { value: 'triage' } });
+    expect(screen.queryByText('Discard unsaved changes?')).toBeNull();
+    expect(api.getSet).toHaveBeenCalledTimes(1);
+  });
+
   it('dispatches setModel for a typed pinned id, but not for an empty value', async () => {
     const api = makeApi();
     renderBar(api, <ModelReadout />);
@@ -321,6 +380,35 @@ describe('TopBar', () => {
 
     fireEvent.keyDown(window, { key: 'Enter', metaKey: true });
     await waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+  });
+
+  it('ignores a defaultPrevented, a repeat, and an isComposing Ctrl+Enter event', async () => {
+    const run = vi.fn(async () => makeResult());
+    const api = makeApi({ run });
+    renderBar(api);
+    await screen.findByRole('button', { name: /Run/ });
+
+    act(() => {
+      const event = new KeyboardEvent('keydown', {
+        key: 'Enter',
+        ctrlKey: true,
+        cancelable: true,
+        bubbles: true,
+      });
+      event.preventDefault();
+      window.dispatchEvent(event);
+    });
+    expect(run).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true, repeat: true });
+    expect(run).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true, isComposing: true });
+    expect(run).not.toHaveBeenCalled();
+
+    // The shortcut still works for an ordinary event.
+    fireEvent.keyDown(window, { key: 'Enter', ctrlKey: true });
+    await waitFor(() => expect(run).toHaveBeenCalledTimes(1));
   });
 
   it('does not run on Ctrl+Enter when Run is disabled', async () => {
