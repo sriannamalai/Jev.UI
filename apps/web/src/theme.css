@@ -392,3 +392,232 @@ legend {
   font-size: 11.5px;
   margin-top: -4px;
 }
+
+/* results column */
+.res {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 12px 14px 14px;
+  cursor: pointer;
+}
+
+.res.active {
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+}
+
+.res-list.stale {
+  opacity: 0.6;
+}
+
+.stale-chip {
+  color: var(--warn);
+}
+
+.res-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.conf {
+  margin-left: auto;
+  font:
+    11.5px 'IBM Plex Mono',
+    monospace;
+  color: var(--ink-2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.conf .ring {
+  width: 28px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.conf .ring i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.conf.mid .ring i {
+  background: var(--warn);
+}
+
+.answer {
+  font-size: 17px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.answer small {
+  font:
+    400 12px 'IBM Plex Sans',
+    system-ui,
+    sans-serif;
+  color: var(--ink-3);
+  margin-left: 6px;
+}
+
+.dist {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) 1fr 44px;
+  gap: 5px 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.dist .lab {
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dist .lab.win {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.track {
+  height: 8px;
+  background: var(--sunk);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+}
+
+.track i {
+  display: block;
+  height: 100%;
+  background: var(--ink-3);
+}
+
+.track i.win {
+  background: var(--accent);
+}
+
+.dist .p {
+  font:
+    12px 'IBM Plex Mono',
+    monospace;
+  text-align: right;
+}
+
+.scale {
+  position: relative;
+  height: 38px;
+  margin: 6px 8px 4px;
+}
+
+.scale .axis {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 12px;
+  height: 2px;
+  background: var(--line);
+}
+
+.scale .tick {
+  position: absolute;
+  top: 7px;
+  width: 2px;
+  height: 12px;
+  background: var(--ink-3);
+  transform: translateX(-1px);
+}
+
+.scale .tick span {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  font:
+    11px 'IBM Plex Mono',
+    monospace;
+  color: var(--ink-3);
+}
+
+.scale .mark {
+  position: absolute;
+  top: 4px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 3px solid var(--panel);
+  box-shadow: 0 0 0 1px var(--accent);
+  transform: translateX(-7px);
+}
+
+.noul {
+  position: relative;
+  height: 14px;
+  background: var(--sunk);
+  border: 1px solid var(--line-soft);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.noul i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.noul::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--ink-3);
+  opacity: 0.6;
+}
+
+.ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
+
+.res-list .empty {
+  color: var(--ink-3);
+}
+
+.res-list .running {
+  color: var(--ink-3);
+  padding: 12px 0;
+}
+
+/* status bar */
+.status {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  padding: 6px 14px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  font:
+    11.5px 'IBM Plex Mono',
+    monospace;
+  color: var(--ink-2);
+}
+
+.status b {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.status .r {
+  margin-left: auto;
+  color: var(--ink-3);
+}
