@@ -23,8 +23,10 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "jsdom": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   }
 }
