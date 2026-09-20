@@ -122,6 +122,14 @@ test('duplicateQuestion inserts directly after source with id <src>_copy', () =>
   expect(request.questions.b_copy).toEqual(req.questions.b);
 });
 
+test('duplicateQuestion of an unknown id is a no-op: same request reference, id echoed back', () => {
+  const req = deepFreeze(baseRequest());
+  const result = duplicateQuestion(req, 'does-not-exist');
+  expect(result.request).toBe(req);
+  expect(result.id).toBe('does-not-exist');
+  expect(questionIds(result.request)).toEqual(questionIds(req));
+});
+
 test('moveQuestion at the edges is a no-op', () => {
   const req = deepFreeze(baseRequest());
   expect(moveQuestion(req, 'a', -1)).toBe(req);

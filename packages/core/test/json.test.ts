@@ -32,6 +32,25 @@ test('empty string is not valid JSON', () => {
   expect(result.ok).toBe(false);
 });
 
+test('a trailing comma reports the line it is actually on, not the last matching bracket', () => {
+  // Regression: the array's trailing comma is on line 2, but a ']' also
+  // appears later (line 3, in "b"'s array) — a message/character-search
+  // based line finder can be fooled into reporting line 3.
+  const result = parseRequestJson('{\n  "a": [1, 2, ],\n  "b": [3, 4]\n}');
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.line).toBe(2);
+  }
+});
+
+test('a CRLF document reports the right line', () => {
+  const result = parseRequestJson('{\r\n  "a": [1, 2, ],\r\n  "b": [3, 4]\r\n}');
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.line).toBe(2);
+  }
+});
+
 test('valid JSON that fails the schema reports the failing path', () => {
   const bad = {
     state: '',
