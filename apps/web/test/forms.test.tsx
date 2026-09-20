@@ -183,7 +183,7 @@ describe('ScoreForm', () => {
 });
 
 describe('QuestionForm / choice', () => {
-  it('renders the choice-form slot and does not crash', () => {
+  it('renders the choice form and does not crash', () => {
     render(
       <WorkbenchProvider
         initial={{
@@ -196,6 +196,6 @@ describe('QuestionForm / choice', () => {
         <QuestionCard id="c1" />
       </WorkbenchProvider>,
     );
-    expect(document.querySelector('[data-slot="choice-form"]')).not.toBeNull();
+    expect(screen.getByRole('group', { name: 'Options' })).toBeInTheDocument();
   });
 });

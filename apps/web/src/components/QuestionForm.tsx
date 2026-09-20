@@ -1,8 +1,10 @@
-// Picks the per-type form for a question. `choice` is a later slice's job —
-// this leaves the same placeholder slot for it to mount into.
+// Picks the per-type form for a question and, when the store's last API
+// error targets this question, threads its field + message down as the
+// `error` prop.
 import { useMemo } from 'react';
-import { enumeratePaths } from '@jev-ui/core/browser';
+import { enumeratePaths, errorTarget } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';
+import { ChoiceForm } from './ChoiceForm.js';
 import { NoulForm } from './NoulForm.js';
 import { ScoreForm } from './ScoreForm.js';
 
@@ -15,12 +17,19 @@ export function QuestionForm(props: { id: string }) {
 
   if (!question) return null;
 
+  const wbError = state.wb.error;
+  const target = errorTarget(wbError?.path);
+  const error =
+    wbError?.kind === 'validation' && target.questionId === id
+      ? { field: target.field ?? 'instructions', message: wbError.message }
+      : undefined;
+
   switch (question.type) {
     case 'noul':
-      return <NoulForm id={id} question={question} paths={paths} />;
+      return <NoulForm id={id} question={question} paths={paths} error={error} />;
     case 'score':
-      return <ScoreForm id={id} question={question} paths={paths} />;
+      return <ScoreForm id={id} question={question} paths={paths} error={error} />;
     case 'choice':
-      return <div data-slot="choice-form" />;
+      return <ChoiceForm id={id} question={question} paths={paths} error={error} />;
   }
 }

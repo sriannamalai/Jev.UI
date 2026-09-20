@@ -4,7 +4,7 @@
 // state changed for a reason other than this component's own last dispatch
 // (e.g. a set was loaded).
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
-import { estimateStateBudget, LIMITS, type Text } from '@jev-ui/core/browser';
+import { errorTarget, estimateStateBudget, LIMITS, type Text } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';
 
 function displayText(state: Text): string {
@@ -56,12 +56,24 @@ export function StatePane() {
   const over = tokens > budget;
   const pct = Math.max(0, Math.min(100, (tokens / budget) * 100));
 
+  const wbError = state.wb.error;
+  const target = errorTarget(wbError?.path);
+  const stateError =
+    wbError?.kind === 'validation' && target.field === 'state' ? wbError.message : undefined;
+
   return (
     <div className="sec">
       <div className="sec-title">
         State <small>text or JSON</small>
       </div>
-      <textarea className="editor mono" aria-label="State" value={text} onChange={handleChange} />
+      <textarea
+        className="editor mono"
+        aria-label="State"
+        aria-invalid={stateError !== undefined ? 'true' : undefined}
+        value={text}
+        onChange={handleChange}
+      />
+      {stateError !== undefined && <div role="alert">{stateError}</div>}
       <div
         className={over ? 'meter over' : 'meter'}
         role="meter"

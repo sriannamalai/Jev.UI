@@ -240,6 +240,16 @@ label.f {
   border-color: var(--warn);
 }
 
+[aria-invalid='true'] {
+  border-color: var(--warn);
+}
+
+.field-error {
+  color: var(--warn);
+  font-size: 11px;
+  margin: 2px 0 0;
+}
+
 .field-structured {
   display: grid;
   gap: 4px;

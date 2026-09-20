@@ -6,3 +6,4 @@ export { QuestionForm } from './QuestionForm.js';
 export { TextField } from './TextField.js';
 export { NoulForm } from './NoulForm.js';
 export { ScoreForm } from './ScoreForm.js';
+export { ChoiceForm } from './ChoiceForm.js';
