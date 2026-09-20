@@ -166,6 +166,18 @@ button {
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
+}
+
+.q-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
   cursor: pointer;
 }
 
@@ -189,7 +201,8 @@ button {
 }
 
 .qid,
-.qid-input {
+.qid-input,
+.qid-edit {
   font-family: 'IBM Plex Mono', monospace;
   font-weight: 500;
   background: none;

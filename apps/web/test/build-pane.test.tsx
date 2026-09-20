@@ -1,14 +1,19 @@
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import type { QuestionSet } from '@jev-ui/core/browser';
+import type { QuestionSet, Request } from '@jev-ui/core/browser';
 import { WorkbenchProvider, useWorkbench } from '../src/store.js';
 import { StatePane, QuestionList, PathInput } from '../src/components/index.js';
 
 const SAMPLE_SET: QuestionSet = {
   name: 'loaded-set',
   state: 'loaded state text',
+  questions: { q1: { type: 'noul', instructions: 'x' } },
+};
+
+const REPLACED_REQUEST: Request = {
+  state: 'replaced state text',
   questions: { q1: { type: 'noul', instructions: 'x' } },
 };
 
@@ -24,6 +29,31 @@ function Probe() {
         onClick={() => dispatch({ type: 'wb', action: { type: 'loadSet', set: SAMPLE_SET } })}
       >
         load
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          dispatch({ type: 'wb', action: { type: 'replaceRequest', request: REPLACED_REQUEST } })
+        }
+      >
+        replace
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          dispatch({
+            type: 'wb',
+            action: {
+              type: 'replaceRequest',
+              request: {
+                state: JSON.parse(JSON.stringify({ a: 2 })) as Request['state'],
+                questions: { q1: { type: 'noul', instructions: 'y' } },
+              },
+            },
+          })
+        }
+      >
+        replace-same-state
       </button>
     </div>
   );
@@ -119,6 +149,117 @@ describe('StatePane', () => {
     const textarea = screen.getByRole('textbox', { name: 'State' });
     expect(textarea).toHaveValue('loaded state text');
   });
+
+  it('resyncs the textarea on an external replaceRequest with a different state', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkbenchProvider>
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: 'replace' }));
+    const textarea = screen.getByRole('textbox', { name: 'State' });
+    expect(textarea).toHaveValue('replaced state text');
+  });
+
+  it('typing a trailing space onto structured state leaves the textarea exactly as typed', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: { a: 1 }, questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    const typed = `${textarea.value} `;
+    fireEvent.change(textarea, { target: { value: typed } });
+    expect(textarea).toHaveValue(typed);
+  });
+
+  it('typing a trailing newline onto structured state leaves the textarea exactly as typed', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: { a: 1 }, questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    const typed = `${textarea.value}\n`;
+    fireEvent.change(textarea, { target: { value: typed } });
+    expect(textarea).toHaveValue(typed);
+  });
+
+  it('typing extra inner whitespace onto structured state leaves the textarea exactly as typed', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: { a: 1 }, questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    const typed = textarea.value.replace('"a": 1', '"a":  1');
+    fireEvent.change(textarea, { target: { value: typed } });
+    expect(textarea).toHaveValue(typed);
+  });
+
+  it('re-typing {"a": 1} as { "a":1 } stays as typed', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: { a: 1 }, questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: '{"a": 1}' } });
+    expect(textarea).toHaveValue('{"a": 1}');
+    fireEvent.change(textarea, { target: { value: '{ "a":1 }' } });
+    expect(textarea).toHaveValue('{ "a":1 }');
+  });
+
+  it('an unrelated external replaceRequest that carries a value-equal (but new-reference) state does not clobber the user-typed text', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: { a: 1 }, questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    // A genuine, non-canonically-formatted edit: single line, not JSON.stringify's
+    // 2-space-indented form.
+    fireEvent.change(textarea, { target: { value: '{"a":2}' } });
+    expect(textarea).toHaveValue('{"a":2}');
+
+    // Something else entirely (e.g. the JSON pane, or another question) replaces
+    // the whole request with a freshly-parsed object. Its `state` field is a new
+    // object reference but the SAME value the user just set.
+    fireEvent.click(screen.getByRole('button', { name: 'replace-same-state' }));
+
+    expect(textarea).toHaveValue('{"a":2}');
+  });
+
+  it('editing a plain-string state is unaffected by the value-equality resync', () => {
+    render(
+      <WorkbenchProvider
+        initial={{ state: 'hello', questions: { q1: { type: 'noul', instructions: 'x' } } }}
+      >
+        <StatePane />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const textarea = screen.getByRole('textbox', { name: 'State' }) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'hello ' } });
+    expect(textarea).toHaveValue('hello ');
+  });
 });
 
 describe('QuestionList / QuestionCard', () => {
@@ -135,8 +276,96 @@ describe('QuestionList / QuestionCard', () => {
     const newId = idsAfter[idsAfter.length - 1];
     expect(newId).toMatch(/^score_1/);
     const card = screen.getByRole('group', { name: `Question ${newId}` });
-    expect(card).toHaveAttribute('aria-expanded', 'true');
+    expect(card).not.toHaveAttribute('aria-expanded');
+    const toggle = card.querySelector('.q-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('probe-selected').textContent).toBe(newId);
+  });
+
+  it('the outer group element does not carry aria-expanded', () => {
+    render(
+      <WorkbenchProvider>
+        <QuestionList />
+      </WorkbenchProvider>,
+    );
+    const card = screen.getByRole('group', { name: 'Question question_1' });
+    expect(card).not.toHaveAttribute('aria-expanded');
+  });
+
+  it('the toggle button has no interactive element nested inside it', () => {
+    render(
+      <WorkbenchProvider>
+        <QuestionList />
+      </WorkbenchProvider>,
+    );
+    const card = screen.getByRole('group', { name: 'Question question_1' });
+    const toggle = card.querySelector('.q-toggle');
+    expect(toggle).not.toBeNull();
+    expect(toggle?.querySelector('button, input, textarea, a')).toBeNull();
+  });
+
+  it('tabbing to a collapsed card toggle and pressing Enter selects and expands it', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkbenchProvider>
+        <QuestionList />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: '+ Noul' }));
+    const idsAfter = ids();
+    const firstId = idsAfter[0] as string;
+    const firstCard = screen.getByRole('group', { name: `Question ${firstId}` });
+    const toggle = firstCard.querySelector('.q-toggle') as HTMLButtonElement;
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+    toggle.focus();
+    await user.keyboard('{Enter}');
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('probe-selected').textContent).toBe(firstId);
+    expect(within(firstCard).getByRole('combobox', { name: 'Instructions' })).toBeInTheDocument();
+  });
+
+  it('Space also selects and expands a collapsed card toggle', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkbenchProvider>
+        <QuestionList />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: '+ Noul' }));
+    const idsAfter = ids();
+    const firstId = idsAfter[0] as string;
+    const firstCard = screen.getByRole('group', { name: `Question ${firstId}` });
+    const toggle = firstCard.querySelector('.q-toggle') as HTMLButtonElement;
+
+    toggle.focus();
+    await user.keyboard(' ');
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('probe-selected').textContent).toBe(firstId);
+  });
+
+  it('renaming via the keyboard still works', async () => {
+    const user = userEvent.setup();
+    render(
+      <WorkbenchProvider>
+        <QuestionList />
+        <Probe />
+      </WorkbenchProvider>,
+    );
+    const renameButton = screen.getByRole('button', { name: 'Rename question question_1' });
+    renameButton.focus();
+    await user.keyboard('{Enter}');
+
+    const input = screen.getByRole('textbox', { name: 'Rename question question_1' });
+    await user.clear(input);
+    await user.type(input, 'renamed_kb');
+    await user.keyboard('{Enter}');
+
+    expect(ids()).toEqual(['renamed_kb']);
   });
 
   it('Delete is disabled with one question', () => {

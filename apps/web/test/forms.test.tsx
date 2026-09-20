@@ -60,6 +60,7 @@ describe('NoulForm', () => {
     );
     const field = screen.getByRole('combobox', { name: 'Yes means' });
     await user.type(field, 'agrees');
+    expect(readQuestion('question_1')).toMatchObject({ criteria: { true: 'agrees' } });
     await user.clear(field);
     const question = readQuestion('question_1');
     expect('criteria' in question).toBe(false);

@@ -47,6 +47,7 @@ describe('ChoiceForm', () => {
     );
     const field = screen.getByRole('combobox', { name: 'Option 0 description' });
     await user.type(field, 'x');
+    expect(readChoice('c1').criteria.a).toBe('x');
     await user.clear(field);
     expect(readChoice('c1').criteria.a).toBeNull();
   });
@@ -249,7 +250,8 @@ describe('field-level validation errors', () => {
     expect(getProbe().state.wb.selectedId).toBe('frustration');
 
     const frustrationCard = screen.getByRole('group', { name: 'Question frustration' });
-    expect(frustrationCard).toHaveAttribute('aria-expanded', 'true');
+    expect(frustrationCard).not.toHaveAttribute('aria-expanded');
+    expect(frustrationCard.querySelector('.q-toggle')).toHaveAttribute('aria-expanded', 'true');
 
     const levelsGroup = within(frustrationCard).getByRole('group', { name: 'Levels' });
     expect(levelsGroup).toHaveAttribute('aria-invalid', 'true');
@@ -260,7 +262,8 @@ describe('field-level validation errors', () => {
     await user.click(tag);
 
     expect(getProbe().state.wb.selectedId).toBe('question_1');
-    expect(question1Card).toHaveAttribute('aria-expanded', 'true');
+    expect(question1Card).not.toHaveAttribute('aria-expanded');
+    expect(question1Card.querySelector('.q-toggle')).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('a validation error targeting state marks the state textarea invalid', () => {

@@ -38,6 +38,7 @@ export function QuestionCard(props: { id: string }) {
   const ids = questionIds(request);
   const idx = ids.indexOf(id);
   const expanded = state.wb.selectedId === id;
+  const bodyId = `q-body-${id}`;
 
   function select(): void {
     dispatch({ type: 'wb', action: { type: 'select', id } });
@@ -84,22 +85,23 @@ export function QuestionCard(props: { id: string }) {
     }
   }
 
-  function stop(event: { stopPropagation(): void }): void {
-    event.stopPropagation();
-  }
-
   return (
-    <div
-      className={expanded ? 'q active' : 'q'}
-      role="group"
-      aria-label={`Question ${id}`}
-      aria-expanded={expanded}
-    >
-      <div className="q-head" onClick={select}>
-        <span className="grip" aria-hidden="true">
-          ⋮⋮
-        </span>
-        <span className="tag">{question.type}</span>
+    <div className={expanded ? 'q active' : 'q'} role="group" aria-label={`Question ${id}`}>
+      <div className="q-head">
+        <button
+          type="button"
+          className="q-toggle"
+          aria-expanded={expanded}
+          aria-controls={bodyId}
+          onClick={select}
+        >
+          <span className="grip" aria-hidden="true">
+            ⋮⋮
+          </span>
+          <span className="tag">{question.type}</span>
+          <span className="qid mono">{id}</span>
+          {!expanded && <span className="summary">{summarize(question)}</span>}
+        </button>
         {editing ? (
           <input
             className="qid-input mono"
@@ -109,30 +111,22 @@ export function QuestionCard(props: { id: string }) {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={handleIdKeyDown}
             onBlur={commit}
-            onClick={stop}
           />
         ) : (
           <button
             type="button"
-            className="qid"
+            className="qid-edit"
             aria-label={`Rename question ${id}`}
-            onClick={(e) => {
-              stop(e);
-              startEdit();
-            }}
+            onClick={startEdit}
           >
-            {id}
+            ✎
           </button>
         )}
         <span className="r">
-          {!expanded && <span className="summary">{summarize(question)}</span>}
           <button
             type="button"
             aria-label={`Duplicate question ${id}`}
-            onClick={(e) => {
-              stop(e);
-              dispatch({ type: 'wb', action: { type: 'duplicateQuestion', id } });
-            }}
+            onClick={() => dispatch({ type: 'wb', action: { type: 'duplicateQuestion', id } })}
           >
             ⧉
           </button>
@@ -140,10 +134,7 @@ export function QuestionCard(props: { id: string }) {
             type="button"
             aria-label={`Delete question ${id}`}
             disabled={ids.length <= 1}
-            onClick={(e) => {
-              stop(e);
-              dispatch({ type: 'wb', action: { type: 'deleteQuestion', id } });
-            }}
+            onClick={() => dispatch({ type: 'wb', action: { type: 'deleteQuestion', id } })}
           >
             ✕
           </button>
@@ -151,10 +142,9 @@ export function QuestionCard(props: { id: string }) {
             type="button"
             aria-label={`Move question ${id} up`}
             disabled={idx <= 0}
-            onClick={(e) => {
-              stop(e);
-              dispatch({ type: 'wb', action: { type: 'moveQuestion', id, delta: -1 } });
-            }}
+            onClick={() =>
+              dispatch({ type: 'wb', action: { type: 'moveQuestion', id, delta: -1 } })
+            }
           >
             ▲
           </button>
@@ -162,10 +152,7 @@ export function QuestionCard(props: { id: string }) {
             type="button"
             aria-label={`Move question ${id} down`}
             disabled={idx === -1 || idx >= ids.length - 1}
-            onClick={(e) => {
-              stop(e);
-              dispatch({ type: 'wb', action: { type: 'moveQuestion', id, delta: 1 } });
-            }}
+            onClick={() => dispatch({ type: 'wb', action: { type: 'moveQuestion', id, delta: 1 } })}
           >
             ▼
           </button>
@@ -173,7 +160,7 @@ export function QuestionCard(props: { id: string }) {
       </div>
       {error && <div role="alert">{error}</div>}
       {expanded && (
-        <div className="q-body">
+        <div className="q-body" id={bodyId}>
           <QuestionForm id={id} />
         </div>
       )}

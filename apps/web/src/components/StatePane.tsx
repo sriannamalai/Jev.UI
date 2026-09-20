@@ -11,6 +11,18 @@ function displayText(state: Text): string {
   return typeof state === 'string' ? state : JSON.stringify(state, null, 2);
 }
 
+// Mirrors the core reducer's own equality rule for `state` (strings by
+// `===`, everything else by JSON.stringify) so "did the store's state
+// actually change" is decided the same way here as it is there. The
+// reducer's `setState` is a no-op when the incoming value is equal by this
+// rule, in which case it keeps its old (reference-unequal-but-value-equal)
+// object — a plain `!==` reference check would then misread that as an
+// external change and reformat the user's in-progress text underneath them.
+function sameText(a: Text, b: Text): boolean {
+  if (typeof a === 'string' && typeof b === 'string') return a === b;
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 type Indicator = 'plain text' | 'JSON ✓' | 'JSON ✗ (sent as text)';
 
 function classify(text: string): { indicator: Indicator; value: Text } {
@@ -36,7 +48,7 @@ export function StatePane() {
   const lastDispatched = useRef<Text>(request.state);
 
   useEffect(() => {
-    if (request.state !== lastDispatched.current) {
+    if (!sameText(request.state, lastDispatched.current)) {
       setText(displayText(request.state));
       lastDispatched.current = request.state;
     }
