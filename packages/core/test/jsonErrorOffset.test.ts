@@ -75,3 +75,19 @@ test('whitespace-only input reports text.length', () => {
   const text = '   \n  ';
   expect(findJsonErrorOffset(text)).toBe(text.length);
 });
+
+test('a huge run of unclosed brackets does not throw and returns undefined', () => {
+  const text = '['.repeat(200000);
+  expect(() => findJsonErrorOffset(text)).not.toThrow();
+  expect(findJsonErrorOffset(text)).toBeUndefined();
+});
+
+test('a valid document nested past the depth limit returns undefined, not an offset', () => {
+  const text = '['.repeat(1001) + ']'.repeat(1001);
+  expect(findJsonErrorOffset(text)).toBeUndefined();
+});
+
+test('a document nested 50 deep with a trailing comma still reports the exact offset', () => {
+  const text = `${'['.repeat(50)}1, ${']'.repeat(50)}`;
+  expect(findJsonErrorOffset(text)).toBe(text.indexOf(']'.repeat(50)));
+});

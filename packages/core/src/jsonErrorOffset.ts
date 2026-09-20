@@ -9,18 +9,31 @@
 //
 // Internal only — not re-exported from browser.ts.
 
+// Recursive descent means stack depth tracks JSON nesting depth. Past this
+// many nested objects/arrays we give up rather than risk a real stack
+// overflow (a RangeError, not a JsonScanError). Giving up returns
+// `undefined` ("no reliable offset"), never a fabricated offset — the
+// document may be perfectly valid JSON that is merely deep, and reporting
+// a bogus error location would be worse than reporting none.
+const MAX_DEPTH = 1000;
+
 class JsonScanError {
   constructor(readonly offset: number) {}
 }
 
+class DepthLimitExceeded {}
+
 /**
  * Returns the 0-based offset of the first character at which `text` stops
  * being valid JSON, `text.length` for an unexpected end of input, or
- * `undefined` if `text` is valid JSON.
+ * `undefined` if `text` is valid JSON OR if scanning had to give up (depth
+ * limit, or any other unexpected failure — this function is total and
+ * never throws).
  */
 export function findJsonErrorOffset(text: string): number | undefined {
   const len = text.length;
   let i = 0;
+  let depth = 0;
 
   const fail = (offset: number): never => {
     throw new JsonScanError(offset);
@@ -128,60 +141,72 @@ export function findJsonErrorOffset(text: string): number | undefined {
   };
 
   function parseObject(): void {
-    i++; // '{'
-    skipWhitespace();
-    if (text[i] === '}') {
-      i++;
-      return;
-    }
-    for (;;) {
+    depth++;
+    if (depth > MAX_DEPTH) throw new DepthLimitExceeded();
+    try {
+      i++; // '{'
       skipWhitespace();
-      if (i >= len) fail(len);
-      if (text[i] !== '"') fail(i);
-      parseString();
-      skipWhitespace();
-      if (i >= len) fail(len);
-      if (text[i] !== ':') fail(i);
-      i++;
-      parseValue();
-      skipWhitespace();
-      if (i >= len) fail(len);
-      if (text[i] === ',') {
-        i++;
-        skipWhitespace();
-        if (text[i] === '}') fail(i); // trailing comma
-        continue;
-      }
       if (text[i] === '}') {
         i++;
         return;
       }
-      fail(i);
+      for (;;) {
+        skipWhitespace();
+        if (i >= len) fail(len);
+        if (text[i] !== '"') fail(i);
+        parseString();
+        skipWhitespace();
+        if (i >= len) fail(len);
+        if (text[i] !== ':') fail(i);
+        i++;
+        parseValue();
+        skipWhitespace();
+        if (i >= len) fail(len);
+        if (text[i] === ',') {
+          i++;
+          skipWhitespace();
+          if (text[i] === '}') fail(i); // trailing comma
+          continue;
+        }
+        if (text[i] === '}') {
+          i++;
+          return;
+        }
+        fail(i);
+      }
+    } finally {
+      depth--;
     }
   }
 
   function parseArray(): void {
-    i++; // '['
-    skipWhitespace();
-    if (text[i] === ']') {
-      i++;
-      return;
-    }
-    for (;;) {
-      parseValue();
+    depth++;
+    if (depth > MAX_DEPTH) throw new DepthLimitExceeded();
+    try {
+      i++; // '['
       skipWhitespace();
-      if (i >= len) fail(len);
-      if (text[i] === ',') {
-        i++;
-        skipWhitespace();
-        if (text[i] === ']') fail(i); // trailing comma
-        continue;
-      }
       if (text[i] === ']') {
         i++;
         return;
       }
-      fail(i);
+      for (;;) {
+        parseValue();
+        skipWhitespace();
+        if (i >= len) fail(len);
+        if (text[i] === ',') {
+          i++;
+          skipWhitespace();
+          if (text[i] === ']') fail(i); // trailing comma
+          continue;
+        }
+        if (text[i] === ']') {
+          i++;
+          return;
+        }
+        fail(i);
+      }
+    } finally {
+      depth--;
     }
   }
 
@@ -191,7 +216,10 @@ export function findJsonErrorOffset(text: string): number | undefined {
     if (i < len) fail(i); // trailing garbage after a valid value
     return undefined;
   } catch (err) {
+    // Total function: a JsonScanError carries a real offset; anything else
+    // (DepthLimitExceeded, or any other unexpected failure) means we could
+    // not reliably determine one.
     if (err instanceof JsonScanError) return err.offset;
-    throw err;
+    return undefined;
   }
 }

@@ -43,6 +43,18 @@ test('a trailing comma reports the line it is actually on, not the last matching
   }
 });
 
+test('a huge run of unclosed brackets is reported as invalid without throwing', () => {
+  const text = '['.repeat(200000);
+  let result: ReturnType<typeof parseRequestJson> | undefined;
+  expect(() => {
+    result = parseRequestJson(text);
+  }).not.toThrow();
+  expect(result?.ok).toBe(false);
+  if (result && !result.ok) {
+    expect(result.line).toBeUndefined();
+  }
+});
+
 test('a CRLF document reports the right line', () => {
   const result = parseRequestJson('{\r\n  "a": [1, 2, ],\r\n  "b": [3, 4]\r\n}');
   expect(result.ok).toBe(false);
