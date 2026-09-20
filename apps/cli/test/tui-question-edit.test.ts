@@ -6,9 +6,10 @@ import {
   linesToChoice,
   linesToScore,
   scoreToLines,
+  structuredPlaceholder,
 } from '../src/tui/questionEdit.js';
 
-const STRUCTURED_PLACEHOLDER = '<structured — edit in JSON>';
+const REJECT_STRUCTURED = 'Structured values can only be edited as JSON — press E';
 
 function choiceQ(criteria: ChoiceQuestion['criteria']): ChoiceQuestion {
   return { type: 'choice', instructions: 'Pick one', criteria };
@@ -70,7 +71,7 @@ describe('choiceToLines / linesToChoice', () => {
 
   it('renders a structured description as a placeholder', () => {
     const q = choiceQ({ key: { nested: 'value' } });
-    expect(choiceToLines(q)).toEqual([`key: ${STRUCTURED_PLACEHOLDER}`]);
+    expect(choiceToLines(q)).toEqual([`key: ${structuredPlaceholder(0)}`]);
   });
 
   it('preserves a structured description when the line is left untouched', () => {
@@ -85,6 +86,49 @@ describe('choiceToLines / linesToChoice', () => {
     const q = choiceQ({ key: { nested: 'value' } });
     const result = linesToChoice(['key: plain text now'], q);
     expect(result).toEqual({ ok: true, criteria: { key: 'plain text now' } });
+  });
+
+  it('keeps a structured description when its key is renamed', () => {
+    const structured = { nested: 'value' };
+    const q = choiceQ({ old_key: structured, other: 'plain' });
+    const lines = choiceToLines(q);
+    expect(lines).toEqual([`old_key: ${structuredPlaceholder(0)}`, 'other: plain']);
+    const result = linesToChoice([`new_key: ${structuredPlaceholder(0)}`, 'other: plain'], q);
+    expect(result).toEqual({ ok: true, criteria: { new_key: structured, other: 'plain' } });
+  });
+
+  it('keeps a structured description when the options are reordered', () => {
+    const structured = { nested: 'value' };
+    const q = choiceQ({ a: 'plain', b: structured });
+    const result = linesToChoice([`b: ${structuredPlaceholder(1)}`, 'a: plain'], q);
+    expect(result).toEqual({ ok: true, criteria: { b: structured, a: 'plain' } });
+  });
+
+  it('rejects the same structured placeholder used twice', () => {
+    const q = choiceQ({ a: { nested: 'value' } });
+    const result = linesToChoice(
+      [`a: ${structuredPlaceholder(0)}`, `b: ${structuredPlaceholder(0)}`],
+      q,
+    );
+    expect(result).toEqual({ ok: false, message: REJECT_STRUCTURED });
+  });
+
+  it('rejects a structured placeholder with no such previous value', () => {
+    const q = choiceQ({ a: { nested: 'value' } });
+    const result = linesToChoice([`a: ${structuredPlaceholder(9)}`], q);
+    expect(result).toEqual({ ok: false, message: REJECT_STRUCTURED });
+  });
+
+  it('rejects a structured placeholder pointing at a plain previous value', () => {
+    const q = choiceQ({ a: 'plain', b: { nested: 'value' } });
+    const result = linesToChoice([`a: ${structuredPlaceholder(0)}`, 'b: x'], q);
+    expect(result).toEqual({ ok: false, message: REJECT_STRUCTURED });
+  });
+
+  it('treats placeholder-like text that is not the exact pattern as ordinary text', () => {
+    const q = choiceQ({ a: { nested: 'value' } });
+    const result = linesToChoice(['a: see <structured #0 — edit in JSON> above'], q);
+    expect(result).toEqual({ ok: true, criteria: { a: 'see <structured #0 — edit in JSON> above' } });
   });
 });
 
@@ -120,7 +164,7 @@ describe('scoreToLines / linesToScore', () => {
 
   it('renders a structured level as a placeholder', () => {
     const q = scoreQ(['Calm', { nested: 'value' }]);
-    expect(scoreToLines(q)).toEqual(['Calm', STRUCTURED_PLACEHOLDER]);
+    expect(scoreToLines(q)).toEqual(['Calm', structuredPlaceholder(1)]);
   });
 
   it('preserves a structured level when the line is left untouched', () => {
@@ -135,6 +179,40 @@ describe('scoreToLines / linesToScore', () => {
     const q = scoreQ(['Calm', { nested: 'value' }]);
     const result = linesToScore(['Calm', 'plain text now'], q);
     expect(result).toEqual({ ok: true, criteria: ['Calm', 'plain text now'] });
+  });
+
+  it('keeps a structured level with its line when the levels are reordered', () => {
+    const structured = { nested: 'value' };
+    const q = scoreQ(['Calm', structured, 'Angry']);
+    const lines = scoreToLines(q);
+    expect(lines).toEqual(['Calm', structuredPlaceholder(1), 'Angry']);
+    const result = linesToScore(['Angry', structuredPlaceholder(1), 'Calm'], q);
+    expect(result).toEqual({ ok: true, criteria: ['Angry', structured, 'Calm'] });
+  });
+
+  it('keeps a structured level when a new level is inserted above it', () => {
+    const structured = { nested: 'value' };
+    const q = scoreQ(['Calm', structured]);
+    const result = linesToScore(['Calm', 'Middling', structuredPlaceholder(1)], q);
+    expect(result).toEqual({ ok: true, criteria: ['Calm', 'Middling', structured] });
+  });
+
+  it('rejects the same structured placeholder used twice', () => {
+    const q = scoreQ(['Calm', { nested: 'value' }]);
+    const result = linesToScore([structuredPlaceholder(1), structuredPlaceholder(1)], q);
+    expect(result).toEqual({ ok: false, message: REJECT_STRUCTURED });
+  });
+
+  it('rejects a structured placeholder with no such previous value', () => {
+    const q = scoreQ(['Calm', { nested: 'value' }]);
+    const result = linesToScore(['Calm', structuredPlaceholder(9)], q);
+    expect(result).toEqual({ ok: false, message: REJECT_STRUCTURED });
+  });
+
+  it('treats placeholder-like text that is not the exact pattern as ordinary text', () => {
+    const q = scoreQ(['Calm', { nested: 'value' }]);
+    const result = linesToScore(['Calm', 'was <structured #1 — edit in JSON>'], q);
+    expect(result).toEqual({ ok: true, criteria: ['Calm', 'was <structured #1 — edit in JSON>'] });
   });
 });
 

@@ -5,18 +5,39 @@
 import { LIMITS } from '@jev-ui/core';
 import type { ChoiceQuestion, ScoreQuestion, Text } from '@jev-ui/core';
 
-/** Shown in place of a non-string (structured) description/level. Left
- * untouched on the way back, the original structured value is restored. */
-export const STRUCTURED_PLACEHOLDER = '<structured — edit in JSON>';
+/** Shown in place of a non-string (structured) description/level. The `#N`
+ * is the value's ORIGINAL position, so the placeholder carries identity:
+ * moving the line around (or renaming its choice key) still restores value
+ * `#N`, and a placeholder that no longer resolves is rejected rather than
+ * silently committed as text. */
+export function structuredPlaceholder(index: number): string {
+  return `<structured #${index} — edit in JSON>`;
+}
+
+/** Matches a whole line (or a whole choice description) that is exactly a
+ * placeholder; text that merely contains one is ordinary text. */
+export const STRUCTURED_PLACEHOLDER_RE = /^<structured #(\d+) — edit in JSON>$/;
+
+/** The original position a placeholder refers to, or `undefined` when `text`
+ * is not exactly a placeholder. */
+export function structuredPlaceholderIndex(text: string): number | undefined {
+  const match = STRUCTURED_PLACEHOLDER_RE.exec(text);
+  return match ? Number(match[1]) : undefined;
+}
+
+/** Shown when a placeholder cannot be resolved — a made-up `#N`, one that
+ * pointed at a plain value, or the same `#N` used on two lines. Nothing is
+ * committed in that case: a placeholder must never become data. */
+export const STRUCTURED_REJECTED = 'Structured values can only be edited as JSON — press E';
 
 function isStructured(value: Text | null | undefined): value is Exclude<Text, string> {
   return value !== null && value !== undefined && typeof value !== 'string';
 }
 
 export function choiceToLines(q: ChoiceQuestion): string[] {
-  return Object.entries(q.criteria).map(([key, description]) => {
+  return Object.entries(q.criteria).map(([key, description], index) => {
     if (description === null || description === undefined) return `${key}:`;
-    if (typeof description !== 'string') return `${key}: ${STRUCTURED_PLACEHOLDER}`;
+    if (typeof description !== 'string') return `${key}: ${structuredPlaceholder(index)}`;
     return `${key}: ${description}`;
   });
 }
@@ -32,8 +53,10 @@ export function linesToChoice(
     return { ok: false, message: `A choice question allows at most ${LIMITS.choiceMax} options` };
   }
 
+  const previousValues = Object.values(previous.criteria);
   const criteria: Record<string, Text | null> = {};
   const seen = new Set<string>();
+  const usedPlaceholders = new Set<number>();
 
   for (const line of lines) {
     const colonIndex = line.indexOf(':');
@@ -53,10 +76,16 @@ export function linesToChoice(
     }
     seen.add(key);
 
-    if (description.length === 0) {
+    const placeholder = structuredPlaceholderIndex(description);
+    if (placeholder !== undefined) {
+      const value = previousValues[placeholder];
+      if (!isStructured(value) || usedPlaceholders.has(placeholder)) {
+        return { ok: false, message: STRUCTURED_REJECTED };
+      }
+      usedPlaceholders.add(placeholder);
+      criteria[key] = value;
+    } else if (description.length === 0) {
       criteria[key] = null;
-    } else if (description === STRUCTURED_PLACEHOLDER && isStructured(previous.criteria[key])) {
-      criteria[key] = previous.criteria[key] as Text;
     } else {
       criteria[key] = description;
     }
@@ -66,7 +95,9 @@ export function linesToChoice(
 }
 
 export function scoreToLines(q: ScoreQuestion): string[] {
-  return q.criteria.map((level) => (typeof level === 'string' ? level : STRUCTURED_PLACEHOLDER));
+  return q.criteria.map((level, index) =>
+    typeof level === 'string' ? level : structuredPlaceholder(index),
+  );
 }
 
 export function linesToScore(
@@ -81,13 +112,20 @@ export function linesToScore(
   }
 
   const criteria: Text[] = [];
+  const usedPlaceholders = new Set<number>();
   for (const [index, rawLine] of lines.entries()) {
     const line = rawLine.trim();
     if (line.length === 0) {
       return { ok: false, message: `Level ${index + 1} is empty` };
     }
-    if (line === STRUCTURED_PLACEHOLDER && isStructured(previous.criteria[index])) {
-      criteria.push(previous.criteria[index] as Text);
+    const placeholder = structuredPlaceholderIndex(line);
+    if (placeholder !== undefined) {
+      const value = previous.criteria[placeholder];
+      if (!isStructured(value) || usedPlaceholders.has(placeholder)) {
+        return { ok: false, message: STRUCTURED_REJECTED };
+      }
+      usedPlaceholders.add(placeholder);
+      criteria.push(value);
     } else {
       criteria.push(line);
     }
