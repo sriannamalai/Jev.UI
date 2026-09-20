@@ -7,6 +7,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useReducer,
   useRef,
   type Dispatch,
@@ -133,11 +134,29 @@ export function WorkbenchProvider(props: { children: ReactNode; initial?: Reques
   const api = props.api ?? defaultApi;
   const [state, dispatch] = useReducer(webReducer, props.initial, initialWeb);
 
-  // Kept in sync on every render so `run()` can make a synchronous,
-  // up-to-the-instant decision (e.g. refusing a second concurrent call)
-  // without waiting for React to commit and re-render.
+  // Kept in sync so `run()` can make a synchronous, up-to-the-instant
+  // decision (e.g. refusing a second concurrent call) without waiting for
+  // React to commit and re-render. The layout effect covers the ordinary
+  // render -> commit path; `run()` additionally writes it synchronously
+  // itself (see below) because that write must be visible to a second,
+  // synchronous `run()` call before React ever gets a chance to run effects.
   const stateRef = useRef(state);
-  stateRef.current = state;
+  useLayoutEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // The AbortController for the currently in-flight run(), if any, so an
+  // unmount can cancel it; a mounted flag so a settling run() never
+  // dispatches into an unmounted provider.
+  const controllerRef = useRef<AbortController | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      controllerRef.current?.abort();
+    };
+  }, []);
 
   useEffect(() => {
     try {
@@ -163,11 +182,16 @@ export function WorkbenchProvider(props: { children: ReactNode; initial?: Reques
     const toSend = requestToRun(afterStart.wb);
     const setName = afterStart.wb.setName;
 
+    const controller = new AbortController();
+    controllerRef.current = controller;
+
     try {
-      const result = await api.run(toSend, setName);
+      const result = await api.run(toSend, setName, controller.signal);
+      if (!mountedRef.current) return;
       dispatch({ type: 'wb', action: { type: 'runOk', result } });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
+      if (!mountedRef.current) return;
       const error =
         err instanceof ApiError
           ? { kind: err.kind, message: err.message, path: err.path }
@@ -176,6 +200,10 @@ export function WorkbenchProvider(props: { children: ReactNode; initial?: Reques
               message: err instanceof Error ? err.message : String(err),
             };
       dispatch({ type: 'wb', action: { type: 'runFail', error } });
+    } finally {
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+      }
     }
   }
 

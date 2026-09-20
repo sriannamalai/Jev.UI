@@ -133,6 +133,18 @@ describe('webReducer — jsonFocus', () => {
     expect(next.jsonError).toBeDefined();
     expect(next.jsonText).toBe('{ broken');
   });
+
+  it('blur with syntactically valid JSON that fails schema validation keeps the text and the error', () => {
+    const text = JSON.stringify({ state: '', model: 'x', questions: {} });
+    const edited = webReducer(baseState(), { type: 'jsonEdited', text });
+    expect(edited.jsonError).toBeDefined();
+
+    const focused = { ...edited, jsonFocused: true };
+    const next = webReducer(focused, { type: 'jsonFocus', focused: false });
+    expect(next.jsonFocused).toBe(false);
+    expect(next.jsonError).toBeDefined();
+    expect(next.jsonText).toBe(text);
+  });
 });
 
 describe('webReducer — setMode', () => {
@@ -214,9 +226,39 @@ describe('WorkbenchProvider / useWorkbench', () => {
     });
 
     expect(fakeApi.run).toHaveBeenCalledTimes(1);
-    expect(fakeApi.run).toHaveBeenCalledWith(snapshot, undefined);
+    expect(fakeApi.run).toHaveBeenCalledWith(snapshot, undefined, expect.any(AbortSignal));
     expect(result.current.state.wb.result).toEqual({ questions: {} });
     expect(result.current.state.wb.running).toBe(false);
+  });
+
+  it('aborts the in-flight run when the provider unmounts, without surfacing an error', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const fakeApi = makeFakeApi({
+      run: vi.fn(
+        (_request: unknown, _setName: unknown, signal: AbortSignal) =>
+          new Promise((_resolve, reject) => {
+            capturedSignal = signal;
+            signal.addEventListener('abort', () => {
+              reject(new DOMException('The operation was aborted', 'AbortError'));
+            });
+          }),
+      ),
+    });
+    const { result, unmount } = renderHook(() => useWorkbench(), { wrapper: wrapper(fakeApi) });
+
+    let runPromise!: Promise<void>;
+    act(() => {
+      runPromise = result.current.run();
+    });
+
+    await waitFor(() => expect(result.current.state.wb.running).toBe(true));
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    unmount();
+
+    expect(capturedSignal?.aborted).toBe(true);
+    await expect(runPromise).resolves.toBeUndefined();
   });
 
   it('an edit dispatched between runStart and resolution marks the result stale', async () => {
@@ -331,11 +373,26 @@ describe('WorkbenchProvider / useWorkbench', () => {
 
     const failing = makeFakeApi({ putSet: vi.fn().mockRejectedValue(new Error('disk full')) });
     const { result: result2 } = renderHook(() => useWorkbench(), { wrapper: wrapper(failing) });
-    // Note: `.rejects.toThrow(...)` is broken in this repo's installed
-    // vitest (fails even on a bare `Promise.reject(new Error(...))` with an
-    // unrelated `Cannot read properties of undefined (reading 'indexOf')`),
-    // so rejection is asserted via `toMatchObject` instead.
-    await expect(result2.current.save('x')).rejects.toMatchObject({ message: 'disk full' });
+    // `.rejects.toThrow('<string>')` (the string-argument overload) hits a
+    // real bug in this workspace's dependency graph, not a repo-wide vitest
+    // defect: only apps/web pins a `vite` version directly, so pnpm installs
+    // two physically distinct copies of `vitest@5.0.1` (one resolved against
+    // vite@7.x, one against vite@8.x). Both copies' setup code runs in this
+    // worker and each independently wraps chai's shared
+    // `Assertion.prototype.throws` — the outer wrapper replaces the `object`
+    // flag with a throwing closure, then the inner wrapper (its `_super`)
+    // reads that already-replaced flag and wraps *it* again, so the closure
+    // that finally runs throws the first closure instead of the real
+    // rejection. Chai's message comparison then does
+    // `thrown.message.indexOf(...)` on that closure (no `.message`) and
+    // throws `Cannot read properties of undefined (reading 'indexOf')`.
+    // Passing an Error instance/class to `.rejects.toThrow` (jest-style
+    // equality/instanceof checks) never calls `.throws()`, so it is
+    // unaffected — verified directly against this repo's installed chai +
+    // vitest. Using that form here restores real throw-checking instead of
+    // the weaker `toMatchObject`.
+    await expect(result2.current.save('x')).rejects.toThrow(new Error('disk full'));
+    await expect(result2.current.save('x')).rejects.toBeInstanceOf(Error);
   });
 
   it('load() replaces the request and re-serialises jsonText', async () => {
@@ -354,7 +411,10 @@ describe('WorkbenchProvider / useWorkbench', () => {
     const fakeApi = makeFakeApi({ getSet: vi.fn().mockRejectedValue(new Error('not found')) });
     const { result } = renderHook(() => useWorkbench(), { wrapper: wrapper(fakeApi) });
 
-    await expect(result.current.load('nope')).rejects.toMatchObject({ message: 'not found' });
+    // See the comment on the `save()` failure test above for why the
+    // Error-object form is used instead of a bare message string.
+    await expect(result.current.load('nope')).rejects.toThrow(new Error('not found'));
+    await expect(result.current.load('nope')).rejects.toBeInstanceOf(Error);
   });
 });
 

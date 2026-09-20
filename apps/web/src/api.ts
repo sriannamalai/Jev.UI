@@ -2,7 +2,6 @@
 // the API key lives only in the Node server). Every request here goes to a
 // relative `/api/...` URL on the project's own localhost server.
 import type {
-  ErrorBody,
   JevErrorKind,
   ModelInfo,
   QuestionSet,
@@ -25,12 +24,52 @@ export class ApiError extends Error {
   }
 }
 
-function isErrorBody(value: unknown): value is ErrorBody {
-  if (typeof value !== 'object' || value === null || !('error' in value)) return false;
+// The eight kinds `JevError`/`ApiError` can carry (see @jev-ui/core's
+// `errors.ts`). Defined once here, `satisfies` against the shared type, so
+// that a future kind added in core — but not added to this list — fails
+// typecheck below rather than silently decoding as a valid kind.
+const KNOWN_ERROR_KINDS = [
+  'noKey',
+  'auth',
+  'validation',
+  'rateLimit',
+  'overloaded',
+  'timeout',
+  'network',
+  'unexpected',
+] as const satisfies readonly JevErrorKind[];
+
+// Exhaustiveness in the other direction: if `JevErrorKind` ever gains a
+// member not present in `KNOWN_ERROR_KINDS`, this conditional type evaluates
+// to `false` and assigning `true` to it fails to typecheck.
+type _KnownErrorKindsAreExhaustive = JevErrorKind extends (typeof KNOWN_ERROR_KINDS)[number]
+  ? true
+  : false;
+const _knownErrorKindsAreExhaustive: _KnownErrorKindsAreExhaustive = true;
+void _knownErrorKindsAreExhaustive;
+
+function isKnownErrorKind(value: unknown): value is JevErrorKind {
+  return typeof value === 'string' && (KNOWN_ERROR_KINDS as readonly string[]).includes(value);
+}
+
+function decodeErrorBody(value: unknown, status: number): ApiError {
+  const unexpected = () => new ApiError('unexpected', `HTTP ${status}`, { status });
+
+  if (typeof value !== 'object' || value === null || !('error' in value)) return unexpected();
   const error = (value as { error: unknown }).error;
-  if (typeof error !== 'object' || error === null) return false;
-  const { kind, message } = error as { kind?: unknown; message?: unknown };
-  return typeof kind === 'string' && typeof message === 'string';
+  if (typeof error !== 'object' || error === null) return unexpected();
+
+  const { kind, message, path } = error as { kind?: unknown; message?: unknown; path?: unknown };
+
+  // An untrustworthy message means the whole error body is untrustworthy —
+  // fall back fully rather than pairing a possibly-wrong kind with a
+  // synthetic message.
+  if (typeof message !== 'string') return unexpected();
+
+  const safeKind = isKnownErrorKind(kind) ? kind : 'unexpected';
+  const safePath = typeof path === 'string' ? path : undefined;
+
+  return new ApiError(safeKind, message, { path: safePath, status });
 }
 
 async function toApiError(response: Response): Promise<ApiError> {
@@ -53,12 +92,7 @@ async function toApiError(response: Response): Promise<ApiError> {
     return unexpected();
   }
 
-  if (!isErrorBody(parsed)) return unexpected();
-
-  return new ApiError(parsed.error.kind, parsed.error.message, {
-    path: parsed.error.path,
-    status: response.status,
-  });
+  return decodeErrorBody(parsed, response.status);
 }
 
 function isAbortError(err: unknown): boolean {

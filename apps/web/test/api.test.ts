@@ -215,6 +215,39 @@ describe('api', () => {
     });
   });
 
+  it('maps an unknown error kind to "unexpected", keeping the server message and status', async () => {
+    const fetchMock = mockFetch(async () =>
+      jsonResponse(400, { error: { kind: 'weird', message: 'm' } }),
+    );
+    const api = createApi(fetchMock);
+
+    const err = await rejectionOf(api.models());
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ kind: 'unexpected', message: 'm', status: 400 });
+  });
+
+  it('drops a non-string path from an otherwise well-formed error body', async () => {
+    const fetchMock = mockFetch(async () =>
+      jsonResponse(422, { error: { kind: 'validation', message: 'm', path: 42 } }),
+    );
+    const api = createApi(fetchMock);
+
+    const err = await rejectionOf(api.models());
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).path).toBeUndefined();
+  });
+
+  it('falls back to "unexpected" with an HTTP-status message when the server message is not a string', async () => {
+    const fetchMock = mockFetch(async () =>
+      jsonResponse(422, { error: { kind: 'validation', message: 5 } }),
+    );
+    const api = createApi(fetchMock);
+
+    const err = await rejectionOf(api.models());
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ kind: 'unexpected', message: 'HTTP 422' });
+  });
+
   it('maps a non-2xx HTML response to an unexpected ApiError', async () => {
     const fetchMock = mockFetch(async () => htmlResponse(502, '<html>Bad Gateway</html>'));
     const api = createApi(fetchMock);
