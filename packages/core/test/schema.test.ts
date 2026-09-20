@@ -129,6 +129,45 @@ test('noul criteria with only one side passes', () => {
   ).toBe(true);
 });
 
+test('noul criteria with both sides passes', () => {
+  expect(
+    QuestionSchema.safeParse({
+      type: 'noul',
+      instructions: 'x',
+      criteria: { true: 'yes', false: 'no' },
+    }).success,
+  ).toBe(true);
+});
+
+test('noul criteria with only false passes', () => {
+  expect(
+    QuestionSchema.safeParse({ type: 'noul', instructions: 'x', criteria: { false: 'no' } })
+      .success,
+  ).toBe(true);
+});
+
+test('noul criteria rejects unknown keys', () => {
+  expect(
+    QuestionSchema.safeParse({ type: 'noul', instructions: 'x', criteria: { maybe: 'x' } }).success,
+  ).toBe(false);
+});
+
+test('noul criteria rejects null values', () => {
+  expect(
+    QuestionSchema.safeParse({ type: 'noul', instructions: 'x', criteria: { true: null } }).success,
+  ).toBe(false);
+});
+
+test('noul criteria accepts structured Text', () => {
+  expect(
+    QuestionSchema.safeParse({
+      type: 'noul',
+      instructions: 'x',
+      criteria: { true: { definition: 'x' } },
+    }).success,
+  ).toBe(true);
+});
+
 test('unknown type fails with issue path starting questions.q.type', () => {
   const result = RequestSchema.safeParse({
     state: 'x',

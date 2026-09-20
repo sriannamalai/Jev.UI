@@ -24,7 +24,12 @@ export const LIMITS = {
 export const NoulQuestionSchema = z.object({
   type: z.literal('noul'),
   instructions: TextSchema,
-  criteria: z.record(z.string(), TextSchema.nullable()).optional(),
+  criteria: z
+    .strictObject({
+      true: TextSchema.optional(),
+      false: TextSchema.optional(),
+    })
+    .optional(),
 });
 
 export const ChoiceQuestionSchema = z.object({
