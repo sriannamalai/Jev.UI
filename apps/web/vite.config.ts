@@ -1,6 +1,6 @@
-/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { configDefaults } from 'vitest/config';
 
 const SERVER_ORIGIN = 'http://127.0.0.1:4173';
 
@@ -30,5 +30,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // The Playwright e2e spec lives here too but must never run under
+    // vitest (it drives a real browser against a real server).
+    exclude: [...configDefaults.exclude, './e2e/**'],
   },
 });
