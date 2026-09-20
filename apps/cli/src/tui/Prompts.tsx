@@ -428,3 +428,42 @@ export function ListPrompt(props: {
     </Box>
   );
 }
+
+/** What `App` hands to its prompt host: which prompt to show and what its
+ * callbacks do. The four kinds mirror the four prompt components above. */
+export type PromptSpec =
+  | {
+      kind: 'text';
+      label: string;
+      initial: string;
+      validate?: (value: string) => string | undefined;
+      onSubmit: (value: string) => void;
+      onCancel: () => void;
+      onCtrlC?: () => void;
+    }
+  | {
+      kind: 'lines';
+      label: string;
+      initial: string[];
+      validate?: (lines: string[]) => string | undefined;
+      hint?: string;
+      onSubmit: (lines: string[]) => void;
+      onCancel: () => void;
+      onCtrlC?: () => void;
+    }
+  | {
+      kind: 'choice';
+      label: string;
+      options: { key: string; label: string }[];
+      onPick: (key: string) => void;
+      onCancel: () => void;
+      onCtrlC?: () => void;
+    }
+  | {
+      kind: 'list';
+      label: string;
+      items: ListItem[];
+      onPick: (key: string) => void;
+      onCancel: () => void;
+      onCtrlC?: () => void;
+    };

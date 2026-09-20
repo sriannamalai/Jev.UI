@@ -1,36 +1,20 @@
 // The TUI's app frame: three panes (wide) or a tab strip + one pane
-// (narrow), focus, selection, run, the editing keys, sets, export,
-// `$EDITOR`, and quit confirmation (spec §8.2).
-import * as nodePath from 'node:path';
+// (narrow), focus, selection, run, the editing keys and the quit
+// confirmation (spec §8.2). The per-type question edit steps live in
+// QuestionEditor.tsx; the sets/export/$EDITOR flows in flows.ts.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';
 import { Box, Text, useApp, useInput } from 'ink';
 import {
   DEFAULT_MODEL,
   JevError,
-  SET_NAME_RE,
   isValidQuestionId,
   initialWorkbench,
-  exportRequest,
-  parseRequestJson,
   questionIds,
   requestToRun,
-  serializeRequest,
-  setFromRequest,
   workbenchReducer,
 } from '@jev-ui/core';
-import type {
-  ExportTarget,
-  HistoryStore,
-  NoulQuestion,
-  Question,
-  Request,
-  SetsStore,
-  SetSummary,
-  Text as JevText,
-  listModels as _listModels,
-  run as _run,
-} from '@jev-ui/core';
+import type { Request, Text as JevText } from '@jev-ui/core';
 import { ResultsView } from './Results.js';
 import { StatusLine } from './StatusLine.js';
 import { Frame, QuestionsView, StateView } from './Panes.js';
@@ -38,105 +22,24 @@ import { displayWidth, padEndDisplay } from './bars.js';
 import { KEYMAP, KEY_GROUPS, PANES, handleKey } from './keys.js';
 import type { Mode, Pane } from './keys.js';
 import { ChoicePrompt, LinesPrompt, ListPrompt, TextPrompt } from './Prompts.js';
-import type { ListItem } from './Prompts.js';
-import {
-  choiceToLines,
-  editableText,
-  linesToChoice,
-  linesToScore,
-  scoreToLines,
-} from './questionEdit.js';
+import type { PromptSpec } from './Prompts.js';
+import { editInEditorFlow, exportFlow, openSetFlow, saveFlow } from './flows.js';
+import type { FlowUi, TuiDeps } from './flows.js';
+import { useQuestionEditor } from './QuestionEditor.js';
 import { useTerminalSize } from './useTerminalSize.js';
+
+export type { TuiDeps } from './flows.js';
 
 const WIDE_MIN_COLUMNS = 120;
 const STATE_FRACTION = 0.3;
 const QUESTIONS_FRACTION = 0.3;
 const BORDER_WIDTH = 2;
 
-const SAVE_NAME_HINT = 'Use lowercase letters, digits, - or _ (must start with a letter or digit)';
-
-const EXPORT_OPTIONS: { key: string; label: string; target: ExportTarget; ext: string }[] = [
-  { key: 'c', label: 'cURL', target: 'curl', ext: 'sh' },
-  { key: 'p', label: 'Python', target: 'python', ext: 'py' },
-  { key: 't', label: 'TypeScript', target: 'typescript', ext: 'ts' },
-];
-
-function errMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-export interface TuiDeps {
-  run: typeof _run;
-  sets: SetsStore;
-  history: HistoryStore;
-  keyConfigured: boolean;
-  listModels: typeof _listModels;
-  openEditor(text: string): Promise<string>;
-  writeFile(path: string, text: string): Promise<void>;
-  fileExists(path: string): Promise<boolean>;
-  cwd(): string;
-  columns?: number;
-  env?: NodeJS.ProcessEnv;
-}
-
 const PANE_LABELS: Record<Pane, string> = {
   state: 'State',
   questions: 'Questions',
   results: 'Results',
 };
-
-type PromptSpec =
-  | {
-      kind: 'text';
-      label: string;
-      initial: string;
-      validate?: (value: string) => string | undefined;
-      onSubmit: (value: string) => void;
-      onCancel: () => void;
-      onCtrlC?: () => void;
-    }
-  | {
-      kind: 'lines';
-      label: string;
-      initial: string[];
-      validate?: (lines: string[]) => string | undefined;
-      hint?: string;
-      onSubmit: (lines: string[]) => void;
-      onCancel: () => void;
-      onCtrlC?: () => void;
-    }
-  | {
-      kind: 'choice';
-      label: string;
-      options: { key: string; label: string }[];
-      onPick: (key: string) => void;
-      onCancel: () => void;
-      onCtrlC?: () => void;
-    }
-  | {
-      kind: 'list';
-      label: string;
-      items: ListItem[];
-      onPick: (key: string) => void;
-      onCancel: () => void;
-      onCtrlC?: () => void;
-    };
-
-type NoulEditStep = 'instructions' | 'yes' | 'no';
-type ChoiceEditStep = 'instructions' | 'options';
-type ScoreEditStep = 'instructions' | 'levels';
-type EditStep = NoulEditStep | ChoiceEditStep | ScoreEditStep;
-
-function buildEditSteps(question: Question): EditStep[] {
-  switch (question.type) {
-    case 'noul':
-      return ['instructions', 'yes', 'no'];
-    case 'choice':
-      return ['instructions', 'options'];
-    case 'score':
-      return ['instructions', 'levels'];
-  }
-}
 
 function TabStrip(props: { focused: Pane }) {
   const { focused } = props;
@@ -328,114 +231,13 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
     })();
   }, [deps, state]);
 
-  function runEditStep(id: string, draft: Question, steps: EditStep[], index: number): void {
-    if (index >= steps.length) {
-      closePrompt();
-      return;
-    }
-    const step = steps[index]!;
-
-    const commit = (updated: Question) => {
-      dispatch({ type: 'updateQuestion', id, question: updated });
-      runEditStep(id, updated, steps, index + 1);
-    };
-
-    if (step === 'instructions') {
-      const et = editableText(draft.instructions);
-      if (!et.editable) {
-        setNotice('Instructions are structured — press E to edit as JSON');
-        runEditStep(id, draft, steps, index + 1);
-        return;
-      }
-      openPrompt({
-        kind: 'text',
-        label: 'Instructions',
-        initial: et.text,
-        onSubmit: (text) => commit({ ...draft, instructions: text }),
-        onCancel: closePrompt,
-      });
-      return;
-    }
-
-    if (step === 'yes' || step === 'no') {
-      if (draft.type !== 'noul') {
-        runEditStep(id, draft, steps, index + 1);
-        return;
-      }
-      const criteriaKey = step === 'yes' ? ('true' as const) : ('false' as const);
-      const current = draft.criteria?.[criteriaKey];
-      const et = editableText(current);
-      openPrompt({
-        kind: 'text',
-        label: step === 'yes' ? 'Yes means' : 'No means',
-        initial: et.editable ? et.text : '',
-        onSubmit: (text) => {
-          const trimmed = text.trim();
-          const criteria = { ...(draft.criteria ?? {}) };
-          if (trimmed.length === 0) delete criteria[criteriaKey];
-          else criteria[criteriaKey] = text;
-          const updated: NoulQuestion =
-            Object.keys(criteria).length > 0
-              ? { type: 'noul', instructions: draft.instructions, criteria }
-              : { type: 'noul', instructions: draft.instructions };
-          commit(updated);
-        },
-        onCancel: closePrompt,
-      });
-      return;
-    }
-
-    if (step === 'options') {
-      if (draft.type !== 'choice') {
-        runEditStep(id, draft, steps, index + 1);
-        return;
-      }
-      openPrompt({
-        kind: 'lines',
-        label: 'Options (key: description)',
-        initial: choiceToLines(draft),
-        validate: (lines) => {
-          const result = linesToChoice(lines, draft);
-          return result.ok ? undefined : result.message;
-        },
-        onSubmit: (lines) => {
-          const result = linesToChoice(lines, draft);
-          if (!result.ok) return;
-          commit({ ...draft, criteria: result.criteria });
-        },
-        onCancel: closePrompt,
-      });
-      return;
-    }
-
-    if (step === 'levels') {
-      if (draft.type !== 'score') {
-        runEditStep(id, draft, steps, index + 1);
-        return;
-      }
-      openPrompt({
-        kind: 'lines',
-        label: 'Levels',
-        initial: scoreToLines(draft),
-        validate: (lines) => {
-          const result = linesToScore(lines, draft);
-          return result.ok ? undefined : result.message;
-        },
-        onSubmit: (lines) => {
-          const result = linesToScore(lines, draft);
-          if (!result.ok) return;
-          commit({ ...draft, criteria: result.criteria });
-        },
-        onCancel: closePrompt,
-      });
-    }
-  }
+  const editQuestion = useQuestionEditor({ openPrompt, closePrompt, setNotice, dispatch });
 
   function editSelected(): void {
     if (!state.selectedId) return;
     const question = state.request.questions[state.selectedId];
     if (!question) return;
-    runEditStep(state.selectedId, question, buildEditSteps(question), 0);
+    editQuestion(state.selectedId, question);
   }
 
   function addQuestion(): void {
@@ -540,260 +342,38 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
     });
   }
 
-  function openSet(): void {
+  /** Every side flow (o/s/S/e/E) runs under one busy guard for its whole
+   * lifetime — keypress to final notice, dispatch or cancellation — so two
+   * of them can never interleave. */
+  function runFlow(start: (ui: FlowUi) => void): void {
     if (busyRef.current) return;
     busyRef.current = true;
-    const done = () => {
-      busyRef.current = false;
-    };
+    start({
+      openPrompt,
+      closePrompt,
+      setNotice,
+      dispatch,
+      isMounted: () => mountedRef.current,
+      done: () => {
+        busyRef.current = false;
+      },
+    });
+  }
 
-    const proceed = () => {
-      void (async () => {
-        try {
-          const summaries = await deps.sets.list();
-          if (!mountedRef.current) return;
-          if (summaries.length === 0) {
-            setNotice(`No sets in ${deps.sets.dir}`);
-            done();
-            return;
-          }
-          openPrompt({
-            kind: 'list',
-            label: 'Open set',
-            items: summaries.map((summary: SetSummary) => ({
-              key: summary.name,
-              label: summary.valid
-                ? `${summary.name}  (${summary.questionCount} question${
-                    summary.questionCount === 1 ? '' : 's'
-                  })`
-                : `${summary.name}  — ${summary.error ?? 'invalid'}`,
-              disabled: !summary.valid,
-            })),
-            onPick: (name) => {
-              closePrompt();
-              void (async () => {
-                try {
-                  const set = await deps.sets.load(name);
-                  if (mountedRef.current) dispatch({ type: 'loadSet', set });
-                } catch (err) {
-                  if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-                } finally {
-                  done();
-                }
-              })();
-            },
-            onCancel: () => {
-              closePrompt();
-              done();
-            },
-          });
-        } catch (err) {
-          if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-          done();
-        }
-      })();
-    };
-
-    if (state.dirty) {
-      openPrompt({
-        kind: 'choice',
-        label: 'Discard unsaved changes?',
-        options: [
-          { key: 'y', label: 'Yes' },
-          { key: 'n', label: 'No' },
-        ],
-        onPick: (key) => {
-          closePrompt();
-          if (key === 'y') proceed();
-          else done();
-        },
-        onCancel: () => {
-          closePrompt();
-          done();
-        },
-      });
-      return;
-    }
-    proceed();
+  function openSet(): void {
+    runFlow((ui) => openSetFlow(deps, state, ui));
   }
 
   function save(forcePrompt: boolean): void {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    const done = () => {
-      busyRef.current = false;
-    };
-
-    const doSave = (name: string) => {
-      void (async () => {
-        try {
-          await deps.sets.save(name, setFromRequest(name, state.request));
-          if (mountedRef.current) {
-            dispatch({ type: 'saved', name });
-            setNotice(`Saved ${name}`);
-          }
-        } catch (err) {
-          if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-        } finally {
-          done();
-        }
-      })();
-    };
-
-    if (!forcePrompt && state.setName) {
-      doSave(state.setName);
-      return;
-    }
-
-    openPrompt({
-      kind: 'text',
-      label: 'Save as',
-      initial: state.setName ?? '',
-      validate: (value) => (SET_NAME_RE.test(value.trim()) ? undefined : SAVE_NAME_HINT),
-      onSubmit: (value) => {
-        closePrompt();
-        doSave(value.trim());
-      },
-      onCancel: () => {
-        closePrompt();
-        done();
-      },
-    });
+    runFlow((ui) => saveFlow(deps, state, ui, { forcePrompt }));
   }
 
-  function exportFlow(): void {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    const done = () => {
-      busyRef.current = false;
-    };
-
-    openPrompt({
-      kind: 'choice',
-      label: 'Export as',
-      options: EXPORT_OPTIONS.map((option) => ({ key: option.key, label: option.label })),
-      onPick: (key) => {
-        closePrompt();
-        const option = EXPORT_OPTIONS.find((o) => o.key === key);
-        if (!option) {
-          done();
-          return;
-        }
-        // `state.setName` is only ever a validated set name, but an export
-        // writes into the user's working directory, so the base name is
-        // re-checked here rather than trusted: anything else falls back to
-        // "request", and the resolved path must still sit directly in cwd.
-        const setName = state.setName ?? '';
-        const baseName = SET_NAME_RE.test(setName) ? setName : 'request';
-        const fileName = `${baseName}.${option.ext}`;
-        const cwd = deps.cwd();
-        const filePath = nodePath.join(cwd, fileName);
-        const displayPath = `./${nodePath.relative(cwd, filePath)}`;
-        if (nodePath.dirname(nodePath.resolve(filePath)) !== nodePath.resolve(cwd)) {
-          setNotice('✕ Refusing to write outside the working directory');
-          done();
-          return;
-        }
-
-        const write = () => {
-          void (async () => {
-            try {
-              const content = exportRequest(option.target, state.request);
-              await deps.writeFile(filePath, content);
-              if (mountedRef.current) setNotice(`Wrote ${displayPath}`);
-            } catch (err) {
-              if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-            } finally {
-              done();
-            }
-          })();
-        };
-
-        void (async () => {
-          try {
-            const exists = await deps.fileExists(filePath);
-            if (!mountedRef.current) {
-              done();
-              return;
-            }
-            if (exists) {
-              openPrompt({
-                kind: 'choice',
-                label: `Overwrite ${displayPath}?`,
-                options: [
-                  { key: 'y', label: 'Yes' },
-                  { key: 'n', label: 'No' },
-                ],
-                onPick: (overwriteKey) => {
-                  closePrompt();
-                  if (overwriteKey === 'y') write();
-                  else done();
-                },
-                onCancel: () => {
-                  closePrompt();
-                  done();
-                },
-              });
-            } else {
-              write();
-            }
-          } catch (err) {
-            if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-            done();
-          }
-        })();
-      },
-      onCancel: () => {
-        closePrompt();
-        done();
-      },
-    });
+  function exportRequest(): void {
+    runFlow((ui) => exportFlow(deps, state, ui));
   }
 
   function editInEditor(): void {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    const done = () => {
-      busyRef.current = false;
-    };
-
-    const text = serializeRequest(state.request);
-    let result = text;
-    void (async () => {
-      try {
-        await suspendTerminal(async () => {
-          result = await deps.openEditor(text);
-          // Keys typed while the editor was handing the terminal back stay
-          // in the buffer and are replayed as commands. Ink owns stdin (it
-          // is not exposed through `useApp`, and `deps` deliberately has no
-          // handle on the real stream, so tests drive a fake one), so there
-          // is no safe way to drain it from here — left as-is rather than
-          // reaching into `process.stdin` behind Ink's back.
-        });
-        if (!mountedRef.current) {
-          done();
-          return;
-        }
-        if (result === text) {
-          setNotice('No changes');
-          done();
-          return;
-        }
-        const parsed = parseRequestJson(result);
-        if (!parsed.ok) {
-          const location = parsed.line !== undefined ? `line ${parsed.line}: ` : '';
-          setNotice(`✕ ${location}${parsed.message}`);
-          done();
-          return;
-        }
-        dispatch({ type: 'replaceRequest', request: parsed.request });
-        setNotice('Request updated');
-      } catch (err) {
-        if (mountedRef.current) setNotice(`✕ ${errMessage(err)}`);
-      } finally {
-        done();
-      }
-    })();
+    runFlow((ui) => editInEditorFlow(deps, state, ui, suspendTerminal));
   }
 
   function quitFlow(): void {
@@ -851,7 +431,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
         editModel,
         openSet,
         save,
-        exportFlow,
+        exportFlow: exportRequest,
         editInEditor,
       });
     },
