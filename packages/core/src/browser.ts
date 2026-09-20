@@ -7,5 +7,6 @@ export * from './doc.js';
 export * from './json.js';
 export * from './metrics.js';
 export * from './statePaths.js';
+export * from './workbench.js';
 export { exportRequest, toCurl, toPython, toTypeScript } from './export.js';
 export type { ExportTarget } from './export.js';
