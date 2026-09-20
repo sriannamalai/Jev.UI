@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
 import { SetError } from '@jev-ui/core';
@@ -85,6 +86,39 @@ function makeDeps(overrides: Partial<TuiDeps> = {}): TuiDeps {
     ...overrides,
   };
 }
+
+/** A real exit signal. `useApp().exit()` makes Ink tear the whole React
+ * tree down, so this probe's effect cleanup runs exactly when the app
+ * exits — unlike `unmount()`, which the test itself controls. */
+function ExitProbe(props: { onExit: () => void }): null {
+  const { onExit } = props;
+  useEffect(() => onExit, [onExit]);
+  return null;
+}
+
+function renderApp(deps: TuiDeps, initial: Request) {
+  const exited = vi.fn();
+  const instance = render(
+    <>
+      <App deps={deps} initial={initial} />
+      <ExitProbe onExit={exited} />
+    </>,
+  );
+  return { ...instance, exited };
+}
+
+/** Dirty the document by replacing the state text with "changed". */
+async function makeDirty(stdin: { write(s: string): void }): Promise<void> {
+  stdin.write('i');
+  await tick();
+  await backspace(stdin, 30);
+  stdin.write('changed');
+  await tick();
+  stdin.write('\r');
+  await tick();
+}
+
+const CTRL_C = '\u0003';
 
 async function tick(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -397,37 +431,136 @@ describe('E: edit the full request in $EDITOR', () => {
 describe('q: quit', () => {
   it('exits immediately when clean', async () => {
     const deps = makeDeps({ columns: 140 });
-    const { stdin, unmount } = render(<App deps={deps} initial={REQUEST} />);
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
     stdin.write('q');
     await tick();
-    // If quit didn't unmount, this second unmount call would still be safe;
-    // the meaningful assertion is that no confirmation prompt is showing.
-    unmount();
+    expect(lastFrame() ?? '').not.toContain('Quit without saving?');
+    expect(exited).toHaveBeenCalled();
   });
 
   it('asks for confirmation when dirty; n stays, y exits', async () => {
     const deps = makeDeps({ columns: 140 });
-    const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
-    stdin.write('i');
-    await tick();
-    await backspace(stdin, 30);
-    stdin.write('changed');
-    await tick();
-    stdin.write('\r');
-    await tick();
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    await makeDirty(stdin);
 
     stdin.write('q');
     await tick();
     expect(lastFrame() ?? '').toContain('Quit without saving?');
+    expect(exited).not.toHaveBeenCalled();
 
     stdin.write('n');
     await tick();
     expect(stripAnsi(lastFrame() ?? '')).toContain('changed');
+    expect(lastFrame() ?? '').not.toContain('Quit without saving?');
+    expect(exited).not.toHaveBeenCalled();
 
     stdin.write('q');
     await tick();
     stdin.write('y');
     await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+});
+
+describe('Ctrl+C', () => {
+  it('exits from a text prompt on a clean document', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    stdin.write('m');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Model');
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+
+  it('cancels a lines prompt and asks to confirm on a dirty document; a second Ctrl+C exits', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    await makeDirty(stdin);
+
+    // Enter on the Questions pane: Instructions (text) then Options (lines).
+    stdin.write('2');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Options (key: description)');
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(lastFrame() ?? '').toContain('Quit without saving?');
+    expect(exited).not.toHaveBeenCalled();
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+
+  it('exits from the open-set list prompt', async () => {
+    const deps = makeDeps({
+      columns: 140,
+      sets: fakeSets({ list: vi.fn(async () => [{ name: 'triage', questionCount: 2, valid: true }]) }),
+    });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    stdin.write('o');
+    await waitForText(lastFrame, 'Open set');
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+
+  it('exits with the help overlay open', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    stdin.write('?');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Keys');
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+
+  it('exits while a run is in flight', async () => {
+    const deps = makeDeps({
+      columns: 140,
+      run: vi.fn(() => new Promise<RunResult>(() => {})),
+    });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    stdin.write('r');
+    await tick();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('Running');
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+  });
+
+  it('exits while an async flow is busy', async () => {
+    let release: (() => void) | undefined;
+    const deps = makeDeps({
+      columns: 140,
+      sets: fakeSets({
+        list: vi.fn(
+          async () =>
+            await new Promise<SetSummary[]>((resolve) => {
+              release = () => resolve([]);
+            }),
+        ),
+      }),
+    });
+    const { stdin, exited } = renderApp(deps, REQUEST);
+    stdin.write('o');
+    await tick();
+
+    stdin.write(CTRL_C);
+    await tick();
+    expect(exited).toHaveBeenCalled();
+    release?.();
   });
 });
 

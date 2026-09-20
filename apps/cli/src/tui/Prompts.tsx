@@ -37,6 +37,10 @@ export function TextPrompt(props: {
   validate?: (value: string) => string | undefined;
   width?: number;
   color?: boolean;
+  /** Ctrl+C is never swallowed by a prompt: the app wires this to "cancel
+   * this prompt and start the quit flow", so a terminal program still
+   * responds to the interrupt key from anywhere. */
+  onCtrlC?: () => void;
 }) {
   const {
     label,
@@ -46,12 +50,17 @@ export function TextPrompt(props: {
     validate,
     width = DEFAULT_WIDTH,
     color = true,
+    onCtrlC,
   } = props;
   const [value, setValue] = useState(initial);
   const [cursor, setCursor] = useState(initial.length);
   const [error, setError] = useState<string | undefined>(undefined);
 
   useInput((input, key) => {
+    if (key.ctrl && input === 'c') {
+      onCtrlC?.();
+      return;
+    }
     if (key.escape) {
       onCancel();
       return;
@@ -142,6 +151,10 @@ export function LinesPrompt(props: {
   hint?: string;
   width?: number;
   color?: boolean;
+  /** Ctrl+C is never swallowed by a prompt: the app wires this to "cancel
+   * this prompt and start the quit flow", so a terminal program still
+   * responds to the interrupt key from anywhere. */
+  onCtrlC?: () => void;
 }) {
   const {
     label,
@@ -152,6 +165,7 @@ export function LinesPrompt(props: {
     hint,
     width = DEFAULT_WIDTH,
     color = true,
+    onCtrlC,
   } = props;
   const initialLines = initial.length > 0 ? initial : [''];
   const [lines, setLines] = useState<string[]>(initialLines);
@@ -160,6 +174,10 @@ export function LinesPrompt(props: {
   const [error, setError] = useState<string | undefined>(undefined);
 
   useInput((input, key) => {
+    if (key.ctrl && input === 'c') {
+      onCtrlC?.();
+      return;
+    }
     if (key.escape) {
       onCancel();
       return;
@@ -273,10 +291,9 @@ export function ChoicePrompt(props: {
   options: { key: string; label: string }[];
   onPick: (key: string) => void;
   onCancel: () => void;
-  /** Only the quit-confirmation prompt wires this: a second Ctrl+C while
-   * it's open force-quits, rather than being swallowed like any other
-   * unmatched key. Every other `ChoicePrompt` use (add-question type,
-   * export target, overwrite confirm) leaves it undefined. */
+  /** As for the other prompts, except that the quit confirmation overrides
+   * it: a second Ctrl+C while it's open force-quits instead of re-opening
+   * the same confirmation. */
   onCtrlC?: () => void;
 }) {
   const { label, options, onPick, onCancel, onCtrlC } = props;
@@ -320,11 +337,19 @@ export function ListPrompt(props: {
   onPick: (key: string) => void;
   onCancel: () => void;
   color?: boolean;
+  /** Ctrl+C is never swallowed by a prompt: the app wires this to "cancel
+   * this prompt and start the quit flow", so a terminal program still
+   * responds to the interrupt key from anywhere. */
+  onCtrlC?: () => void;
 }) {
-  const { label, items, onPick, onCancel, color = true } = props;
+  const { label, items, onPick, onCancel, color = true, onCtrlC } = props;
   const [index, setIndex] = useState(0);
 
   useInput((input, key) => {
+    if (key.ctrl && input === 'c') {
+      onCtrlC?.();
+      return;
+    }
     if (key.escape) {
       onCancel();
       return;

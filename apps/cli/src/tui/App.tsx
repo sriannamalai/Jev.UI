@@ -92,6 +92,7 @@ type PromptSpec =
       validate?: (value: string) => string | undefined;
       onSubmit: (value: string) => void;
       onCancel: () => void;
+      onCtrlC?: () => void;
     }
   | {
       kind: 'lines';
@@ -101,6 +102,7 @@ type PromptSpec =
       hint?: string;
       onSubmit: (lines: string[]) => void;
       onCancel: () => void;
+      onCtrlC?: () => void;
     }
   | {
       kind: 'choice';
@@ -116,6 +118,7 @@ type PromptSpec =
       items: ListItem[];
       onPick: (key: string) => void;
       onCancel: () => void;
+      onCtrlC?: () => void;
     };
 
 type NoulEditStep = 'instructions' | 'yes' | 'no';
@@ -178,8 +181,16 @@ function HelpOverlay() {
   );
 }
 
-function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }) {
+function PromptView(props: {
+  prompt: PromptSpec;
+  color: boolean;
+  width: number;
+  /** What Ctrl+C does inside any prompt that doesn't override it: cancel the
+   * prompt and start the quit flow. */
+  onCtrlC: () => void;
+}) {
   const { prompt, color, width } = props;
+  const onCtrlC = prompt.onCtrlC ?? props.onCtrlC;
   if (prompt.kind === 'text') {
     return (
       <TextPrompt
@@ -188,6 +199,7 @@ function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }
         validate={prompt.validate}
         onSubmit={prompt.onSubmit}
         onCancel={prompt.onCancel}
+        onCtrlC={onCtrlC}
         width={width}
         color={color}
       />
@@ -202,6 +214,7 @@ function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }
         hint={prompt.hint}
         onSubmit={prompt.onSubmit}
         onCancel={prompt.onCancel}
+        onCtrlC={onCtrlC}
         width={width}
         color={color}
       />
@@ -214,6 +227,7 @@ function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }
         items={prompt.items}
         onPick={prompt.onPick}
         onCancel={prompt.onCancel}
+        onCtrlC={onCtrlC}
         color={color}
       />
     );
@@ -224,7 +238,7 @@ function PromptView(props: { prompt: PromptSpec; color: boolean; width: number }
       options={prompt.options}
       onPick={prompt.onPick}
       onCancel={prompt.onCancel}
-      onCtrlC={prompt.onCtrlC}
+      onCtrlC={onCtrlC}
     />
   );
 }
@@ -786,6 +800,14 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
     });
   }
 
+  /** Ctrl+C inside a prompt: cancel that prompt (exactly as Esc does, so any
+   * flow it belongs to releases `busyRef`) and start the quit flow — clean
+   * exits at once, dirty asks for confirmation. */
+  function promptCtrlC(): void {
+    prompt?.onCancel();
+    quitFlow();
+  }
+
   useInput(
     (input, key) => {
       setNotice(undefined);
@@ -833,7 +855,13 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       {mode === 'help' ? (
         <HelpOverlay />
       ) : mode === 'prompt' && prompt ? (
-        <PromptView key={promptSeq} prompt={prompt} color={color} width={columns} />
+        <PromptView
+          key={promptSeq}
+          prompt={prompt}
+          color={color}
+          width={columns}
+          onCtrlC={promptCtrlC}
+        />
       ) : wide ? (
         <Box flexDirection="row">
           <Frame title="STATE" focused={focused === 'state'} width={stateWidth} color={color}>
