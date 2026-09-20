@@ -6,6 +6,7 @@ import { runAsk as defaultRunAsk } from './ask.js';
 import type { AskOptions, Io } from './ask.js';
 import { runServe as defaultRunServe } from './serve.js';
 import type { ServeOptions } from './serve.js';
+import { runTui } from './tui/runTui.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
@@ -29,10 +30,10 @@ function defaultIo(): Io {
   };
 }
 
-/** Placeholder until the TUI (a later task) replaces it. */
-function defaultRunTui(io: Io): void {
-  io.stderr.write('TUI not built yet\n');
-  process.exitCode = 1;
+/** Adapts the real `runTui({ setsDir, env, stdin, stderr })` to `RunTui`'s
+ * `(io: Io) => …` shape, so `main`/tests keep injecting a single `Io` bag. */
+function defaultRunTui(io: Io): Promise<void> {
+  return runTui({ setsDir: io.setsDir, env: io.env, stdin: io.stdin, stderr: io.stderr });
 }
 
 function parsePort(value: string): number {
@@ -110,8 +111,9 @@ export function buildProgram(deps: Partial<BinDeps> = {}): Command {
   program
     .command('tui', { isDefault: true, hidden: true })
     .description('Launch the interactive TUI')
-    .action(async () => {
-      await runTuiFn(io);
+    .action(async (_cmdOpts: unknown, command: Command) => {
+      const globalOpts = command.optsWithGlobals() as { setsDir?: string };
+      await runTuiFn({ ...io, setsDir: globalOpts.setsDir });
     });
 
   return program;

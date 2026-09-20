@@ -30,6 +30,9 @@ export interface Io {
   cwd: string;
   run?: typeof run;
   history?: HistoryStore;
+  // Set by `buildProgram`'s `tui` action from the global `--sets-dir`, so the
+  // default `runTui` can pass it through without changing `RunTui`'s shape.
+  setsDir?: string;
 }
 
 function isPathLike(set: string): boolean {
