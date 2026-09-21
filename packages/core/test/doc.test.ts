@@ -152,6 +152,13 @@ test('duplicateQuestion of an unknown id is a no-op: same request reference, id 
   expect(questionIds(result.request)).toEqual(questionIds(req));
 });
 
+test('duplicateQuestion of a prototype member name is a no-op', () => {
+  const req = deepFreeze(newRequest());
+  const result = duplicateQuestion(req, 'toString');
+  expect(result.request).toBe(req);
+  expect(questionIds(result.request)).toEqual(questionIds(req));
+});
+
 test('moveQuestion at the edges is a no-op', () => {
   const req = deepFreeze(baseRequest());
   expect(moveQuestion(req, 'a', -1)).toBe(req);

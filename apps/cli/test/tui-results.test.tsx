@@ -87,6 +87,32 @@ describe('ResultsView', () => {
     expect(lastFrame()).toContain('Run the request (r) to see answers here.');
   });
 
+  it('renders nothing for a question named after a prototype member with no answer', () => {
+    const request: Request = {
+      state: 'A customer wrote in.',
+      questions: { constructor: { type: 'noul' as const, instructions: 'Is this urgent?' } },
+    };
+    const result: RunResult = {
+      answers: {},
+      model: 'jev-1.13.0',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 1,
+      costUsd: 0,
+    };
+    const { lastFrame } = render(
+      <ResultsView
+        request={request}
+        result={result}
+        stale={false}
+        running={false}
+        selectedId={undefined}
+        width={WIDTH}
+        color={false}
+      />,
+    );
+    expect(lastFrame() ?? '').not.toContain('constructor');
+  });
+
   it('renders the choice block with bars and probability-descending order', () => {
     const { lastFrame } = render(
       <ResultsView

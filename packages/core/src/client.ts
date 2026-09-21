@@ -171,6 +171,11 @@ async function guarded<T>(
   }
 }
 
+/**
+ * Parse every upstream answer. Keys are written with `defineProperty` so that an upstream key of
+ * `__proto__` becomes an ordinary own property of the result rather than replacing its prototype.
+ * The result is still a plain object with `Object.prototype`, so callers can use it as usual.
+ */
 function parseAnswers(raw: Record<string, unknown>): Record<string, Answer> {
   const answers: Record<string, Answer> = {};
   for (const [key, value] of Object.entries(raw)) {
@@ -178,7 +183,12 @@ function parseAnswers(raw: Record<string, unknown>): Record<string, Answer> {
     if (!parsed.success) {
       throw new JevError('unexpected', `Malformed answer for question "${key}".`);
     }
-    answers[key] = parsed.data;
+    Object.defineProperty(answers, key, {
+      value: parsed.data,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
   return answers;
 }

@@ -120,6 +120,29 @@ describe('ResultsPane', () => {
     expect(screen.getByText('Run the request to see answers here.')).toBeInTheDocument();
   });
 
+  it('renders nothing for a question named after a prototype member with no answer', async () => {
+    const request: Request = {
+      state: 'hello',
+      model: 'jev-latest',
+      questions: { constructor: { type: 'noul' as const, instructions: 'Is this urgent?' } },
+    };
+    const result: RunResult = {
+      model: 'jev-1.13.0',
+      usage: { inputTokens: 1, outputTokens: 1 },
+      latencyMs: 1,
+      costUsd: 0,
+      answers: {},
+    };
+    render(
+      <WorkbenchProvider initial={request}>
+        <ResultsPane />
+        <RunActions result={result} />
+      </WorkbenchProvider>,
+    );
+    await runToOk();
+    expect(screen.queryByText('constructor result')).toBeNull();
+  });
+
   it('renders the choice answer with the winner and probability-sorted meters', async () => {
     render(
       <WorkbenchProvider initial={quickStartRequest}>

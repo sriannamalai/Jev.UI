@@ -75,6 +75,7 @@ export function ResultsPane() {
   const blocks: { id: string; answer: Answer }[] = [];
   if (result) {
     for (const id of questionIds(request)) {
+      if (!Object.hasOwn(result.answers, id)) continue;
       const answer = result.answers[id];
       if (answer) blocks.push({ id, answer });
     }

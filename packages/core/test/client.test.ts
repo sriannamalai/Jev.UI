@@ -159,6 +159,23 @@ test('400 with a string detail naming an unknown id yields no path', async () =>
   });
 });
 
+test('an upstream answer keyed __proto__ stays an own property', async () => {
+  const fetch = vi.fn(async () =>
+    ok({
+      model: 'jev-1.13.0',
+      answers: {
+        is_urgent: { type: 'noul', noul: 0.5 },
+        ['__proto__']: { type: 'noul', noul: 0.25 },
+      },
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }),
+  );
+  const r = await run(req, { apiKey: 'k', fetch, maxRetries: 0 });
+  expect(Object.getPrototypeOf(r.answers)).toBe(Object.prototype);
+  expect(Object.hasOwn(r.answers, '__proto__')).toBe(true);
+  expect(r.answers.is_urgent).toEqual({ type: 'noul', noul: 0.5 });
+});
+
 test('429 maps to rateLimit with retryAfterMs from the retry-after header', async () => {
   const fetch = vi.fn(async () =>
     fail(

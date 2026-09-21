@@ -65,9 +65,12 @@ export function deleteQuestion(request: Request, id: string): Request {
 }
 
 export function duplicateQuestion(request: Request, id: string): { request: Request; id: string } {
-  const source = request.questions[id];
   // Unknown id: no-op. Return the same request reference and echo `id`
-  // back unchanged — it is NOT the id of a newly created duplicate.
+  // back unchanged — it is NOT the id of a newly created duplicate. The
+  // own-property check keeps a name inherited from `Object.prototype`
+  // (`toString`, `constructor`, …) from looking like a real question.
+  if (!Object.hasOwn(request.questions, id)) return { request, id };
+  const source = request.questions[id];
   if (!source) return { request, id };
 
   const newId = uniqueId(request, `${id}_copy`);
