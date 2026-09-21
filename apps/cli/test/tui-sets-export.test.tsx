@@ -264,6 +264,54 @@ describe('o: open a set', () => {
     stdin.write('o');
     await waitForText(lastFrame, 'No sets in /sets');
   });
+
+  it('releases the busy guard when abandoned for a pending quit confirmation', async () => {
+    const summaries: SetSummary[] = [{ name: 'triage', questionCount: 2, valid: true }];
+    const load = vi.fn(async () => TRIAGE_SET);
+    let resolveList: (summaries: SetSummary[]) => void = () => undefined;
+    const list = vi.fn();
+    list.mockImplementationOnce(
+      () =>
+        new Promise<SetSummary[]>((resolve) => {
+          resolveList = resolve;
+        }),
+    );
+    list.mockResolvedValue(summaries);
+    const deps = makeDeps({
+      columns: 140,
+      sets: fakeSets({ list, load }),
+    });
+    const { lastFrame, stdin } = renderApp(deps, REQUEST);
+    await makeDirty(stdin);
+
+    stdin.write('o');
+    await waitForText(lastFrame, 'Discard unsaved changes?');
+    stdin.write('y');
+    await tick();
+
+    stdin.write('q');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Quit without saving?');
+
+    resolveList(summaries);
+    await tick();
+    await tick();
+    // The abandoned open must not push its list prompt over the quit confirmation.
+    expect(lastFrame() ?? '').toContain('Quit without saving?');
+    expect(lastFrame() ?? '').not.toContain('Open set');
+    expect(load).not.toHaveBeenCalled();
+
+    stdin.write('n');
+    await tick();
+    expect(lastFrame() ?? '').not.toContain('Quit without saving?');
+
+    // The busy guard must have been released by the abandoned flow — a second
+    // open now works (the document is still dirty, so it asks again first).
+    stdin.write('o');
+    await waitForText(lastFrame, 'Discard unsaved changes?');
+    stdin.write('y');
+    await waitForText(lastFrame, 'Open set');
+  });
 });
 
 describe('s / S: save', () => {

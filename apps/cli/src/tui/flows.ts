@@ -68,7 +68,10 @@ export function openSetFlow(deps: TuiDeps, state: Workbench, ui: FlowUi): void {
     void (async () => {
       try {
         const summaries = await deps.sets.list();
-        if (!ui.isMounted()) return;
+        if (!ui.isMounted()) {
+          ui.done();
+          return;
+        }
         if (summaries.length === 0) {
           ui.setNotice(`No sets in ${deps.sets.dir}`);
           ui.done();
