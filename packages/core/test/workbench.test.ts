@@ -6,7 +6,9 @@ import {
   canRun,
   errorTarget,
   initialWorkbench,
+  questionRunBlocker,
   requestToRun,
+  runBlockers,
   workbenchReducer,
   type WorkbenchState,
 } from '../src/workbench.js';
@@ -334,6 +336,58 @@ test('canRun is false while running', () => {
 test('canRun is false for an invalid request', () => {
   const s = frozenState({ request: { state: '', questions: {} } });
   expect(canRun(s)).toBe(false);
+});
+
+// --- run blockers: the API rejects a question with neither instructions nor criteria ----
+
+test('canRun is false for the blank starting request', () => {
+  expect(canRun(initialWorkbench())).toBe(false);
+});
+
+test('canRun becomes true once the blank question has instructions', () => {
+  const s = initialWorkbench();
+  const next = workbenchReducer(s, {
+    type: 'updateQuestion',
+    id: 'question_1',
+    question: { type: 'noul', instructions: 'Is this urgent?' },
+  });
+  expect(canRun(next)).toBe(true);
+});
+
+test('runBlockers names each question that has neither instructions nor criteria', () => {
+  expect(runBlockers(newRequest())).toEqual([
+    { id: 'question_1', message: 'Add instructions or criteria to "question_1"' },
+  ]);
+  expect(runBlockers(baseRequest())).toEqual([]);
+});
+
+test('a noul question with empty instructions but a true-criterion is runnable', () => {
+  const q: Question = { type: 'noul', instructions: '   ', criteria: { true: 'clearly urgent' } };
+  expect(questionRunBlocker(q)).toBeUndefined();
+});
+
+test('a noul question with both criteria sides empty is blocked', () => {
+  const q: Question = { type: 'noul', instructions: '', criteria: { true: '', false: '' } };
+  expect(questionRunBlocker(q)).toBe('Add instructions or criteria');
+});
+
+test('a choice question with all-null descriptions but instructions is runnable', () => {
+  const q: Question = {
+    type: 'choice',
+    instructions: 'Pick one',
+    criteria: { option_1: null, option_2: null },
+  };
+  expect(questionRunBlocker(q)).toBeUndefined();
+});
+
+test('a score question with empty levels and empty instructions is blocked', () => {
+  const q: Question = { type: 'score', instructions: '', criteria: ['', ''] };
+  expect(questionRunBlocker(q)).toBe('Add instructions or criteria');
+});
+
+test('structured instructions count as non-empty', () => {
+  const q: Question = { type: 'noul', instructions: { ask: 'is it urgent' } };
+  expect(questionRunBlocker(q)).toBeUndefined();
 });
 
 test('runStart sets running:true and clears error', () => {

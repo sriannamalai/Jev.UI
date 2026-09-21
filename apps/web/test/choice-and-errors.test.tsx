@@ -30,7 +30,7 @@ function requestWithFrustration(): Request {
   return {
     state: '',
     questions: {
-      question_1: { type: 'noul', instructions: '' },
+      question_1: { type: 'noul', instructions: 'Is this urgent?' },
       frustration: { type: 'score', instructions: '', criteria: ['a', 'b'] },
     },
   };

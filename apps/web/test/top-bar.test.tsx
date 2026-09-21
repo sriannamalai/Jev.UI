@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { newRequest, toCurl, toPython, type QuestionSet } from '@jev-ui/core/browser';
+import { newRequest, toCurl, toPython, type QuestionSet, type Request } from '@jev-ui/core/browser';
 import { createApi } from '../src/api.js';
 import { WorkbenchProvider, useWorkbench } from '../src/store.js';
 import { TopBar } from '../src/components/index.js';
@@ -41,9 +41,19 @@ function ServerInfoTopBar(props: { api: Api }) {
   return <TopBar serverInfo={serverInfo} />;
 }
 
-function renderBar(api: Api, extra?: React.ReactNode) {
+// The blank starting request cannot be run (its only question has neither
+// instructions nor criteria), so tests about a *runnable* workbench start here.
+function runnableRequest() {
+  const base = newRequest();
+  return {
+    ...base,
+    questions: { question_1: { type: 'noul' as const, instructions: 'Is this urgent?' } },
+  };
+}
+
+function renderBar(api: Api, extra?: React.ReactNode, initial?: Request) {
   return render(
-    <WorkbenchProvider api={api}>
+    <WorkbenchProvider api={api} initial={initial}>
       {extra}
       <ServerInfoTopBar api={api} />
     </WorkbenchProvider>,
@@ -227,7 +237,7 @@ describe('TopBar', () => {
 
   it('shows the resolved model after a run whose result model differs from the alias', async () => {
     const api = makeApi({ run: vi.fn(async () => makeResult('jev-1.13.0')) });
-    renderBar(api);
+    renderBar(api, undefined, runnableRequest());
     const runButton = await screen.findByRole('button', { name: /Run/ });
     await act(async () => {
       fireEvent.click(runButton);
@@ -358,15 +368,23 @@ describe('TopBar', () => {
 
   it('enables Run when the API key is configured', async () => {
     const api = makeApi();
-    renderBar(api);
+    renderBar(api, undefined, runnableRequest());
     await screen.findByRole('img', { name: 'API key detected' });
     expect(screen.getByRole('button', { name: /Run/ })).not.toBeDisabled();
+  });
+
+  it('disables Run and names the question that needs instructions or criteria', async () => {
+    const api = makeApi();
+    renderBar(api);
+    const runButton = await screen.findByRole('button', { name: /Run/ });
+    await waitFor(() => expect(runButton).toBeDisabled());
+    expect(runButton).toHaveAttribute('title', 'Add instructions or criteria to "question_1"');
   });
 
   it('runs on Ctrl+Enter and Meta+Enter, and does nothing when Run is disabled', async () => {
     const run = vi.fn(async () => makeResult());
     const api = makeApi({ run });
-    renderBar(api);
+    renderBar(api, undefined, runnableRequest());
     await screen.findByRole('button', { name: /Run/ });
 
     const runButton = screen.getByRole('button', { name: /Run/ });
@@ -385,7 +403,7 @@ describe('TopBar', () => {
   it('ignores a defaultPrevented, a repeat, and an isComposing Ctrl+Enter event', async () => {
     const run = vi.fn(async () => makeResult());
     const api = makeApi({ run });
-    renderBar(api);
+    renderBar(api, undefined, runnableRequest());
     await screen.findByRole('button', { name: /Run/ });
 
     act(() => {

@@ -2,6 +2,7 @@
 // error, while no API key is configured, or while the request itself is
 // invalid — the `title` always explains which. Installs the global
 // `⌘/Ctrl+Enter` shortcut whenever it isn't disabled.
+import { runBlockers } from '@jev-ui/core/browser';
 import { selectCanRun, useWorkbench } from '../store.js';
 import { useRunShortcut } from '../hooks/useRunShortcut.js';
 
@@ -17,7 +18,7 @@ export function RunButton(props: { keyConfigured: boolean | undefined }) {
   } else if (keyConfigured === false) {
     title = 'No API key configured';
   } else if (!canRun) {
-    title = 'Add at least one valid question';
+    title = runBlockers(state.wb.request)[0]?.message ?? 'Add at least one valid question';
   }
 
   useRunShortcut(run, !disabled);

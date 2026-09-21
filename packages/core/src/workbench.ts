@@ -71,8 +71,47 @@ export function initialWorkbench(request?: Request): WorkbenchState {
   };
 }
 
+/** A `Text` counts as filled in unless it is a string that is empty or only whitespace. */
+function textFilled(value: Text | null | undefined): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string') return value.trim().length > 0;
+  return true;
+}
+
+/**
+ * Why this question cannot be sent, or `undefined` when it can. The API rejects a question that
+ * carries neither instructions nor criteria with a 400, so the UIs stop it before it costs a
+ * round trip.
+ */
+export function questionRunBlocker(q: Question): string | undefined {
+  if (textFilled(q.instructions)) return undefined;
+  const hasCriteria = (() => {
+    switch (q.type) {
+      case 'noul':
+        return textFilled(q.criteria?.true) || textFilled(q.criteria?.false);
+      case 'choice':
+        return Object.values(q.criteria).some(textFilled);
+      case 'score':
+        return q.criteria.some(textFilled);
+    }
+  })();
+  return hasCriteria ? undefined : 'Add instructions or criteria';
+}
+
+/** Every question of the request that cannot be sent, with a message naming it. */
+export function runBlockers(request: Request): { id: string; message: string }[] {
+  return questionIds(request).flatMap((id) => {
+    const q = request.questions[id];
+    if (q === undefined) return [];
+    const blocker = questionRunBlocker(q);
+    return blocker === undefined ? [] : [{ id, message: `${blocker} to "${id}"` }];
+  });
+}
+
 export function canRun(s: WorkbenchState): boolean {
-  return !s.running && RequestSchema.safeParse(s.request).success;
+  if (s.running) return false;
+  if (!RequestSchema.safeParse(s.request).success) return false;
+  return runBlockers(s.request).length === 0;
 }
 
 /** The snapshot both UIs must send when running: the request as it was at

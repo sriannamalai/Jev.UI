@@ -12,6 +12,7 @@ import {
   initialWorkbench,
   questionIds,
   requestToRun,
+  runBlockers,
   workbenchReducer,
 } from '@jev-ui/core';
 import type { Request, Text as JevText } from '@jev-ui/core';
@@ -196,7 +197,10 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
 
     const next = workbenchReducer(state, { type: 'runStart' });
     if (next === state) {
-      if (!state.running) setNotice('Request is not valid — nothing to run');
+      if (!state.running) {
+        const blocker = runBlockers(state.request)[0];
+        setNotice(blocker?.message ?? 'Request is not valid — nothing to run');
+      }
       return;
     }
 

@@ -262,6 +262,19 @@ describe('App run', () => {
     expect(frame).toContain('✕ validation: bad at questions.q.criteria');
   });
 
+  it('names the question that still needs instructions or criteria', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const blank: Request = {
+      state: 'A customer wrote in.',
+      questions: { is_urgent: { type: 'noul', instructions: '' } },
+    };
+    const { lastFrame, stdin } = render(<App deps={deps} initial={blank} />);
+    stdin.write('r');
+    await tick();
+    expect(deps.run).not.toHaveBeenCalled();
+    expect(stripAnsi(lastFrame() ?? '')).toContain('Add instructions or criteria to "is_urgent"');
+  });
+
   it('does not call run when the key is not configured, and shows the key hint in the footer', async () => {
     const deps = makeDeps({ columns: 140, keyConfigured: false });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
