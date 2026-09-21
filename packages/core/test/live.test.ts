@@ -35,21 +35,23 @@ describe.skipIf(process.env.JEV_LIVE !== '1')('live API', () => {
     const department = result.answers.department;
     expect(department?.type).toBe('choice');
     if (department?.type === 'choice') {
-      // Loose bounds only: model versions move over time, and this
-      // asserts direction (a Stripe integration failure is a technical
-      // issue), not an exact probability.
+      // The one unambiguous call in the set: a failing Stripe integration is a
+      // technical issue, whichever way the probabilities fall.
       expect(department.choice).toBe('technical');
     }
 
     const isUrgent = result.answers.is_urgent;
     expect(isUrgent?.type).toBe('noul');
     if (isUrgent?.type === 'noul') {
+      // Loose bounds only: model versions move over time, so the probability
+      // assertions below check direction, not an exact value.
       expect(isUrgent.noul).toBeGreaterThan(0.8);
     }
 
     const frustration = result.answers.frustration;
     expect(frustration?.type).toBe('score');
     if (frustration?.type === 'score') {
+      // Also a loose band rather than a fixed score, for the same reason.
       expect(frustration.score).toBeGreaterThanOrEqual(0.5);
       expect(frustration.score).toBeLessThanOrEqual(1.5);
     }
