@@ -303,6 +303,57 @@ describe('sets routes', () => {
   });
 });
 
+describe('request body limit', () => {
+  // One byte over the 4 MiB ceiling, sent with a content-length so the limit
+  // is hit before the body is ever read.
+  const oversized = 'x'.repeat(4 * 1024 * 1024 + 1);
+
+  it('answers 413 with the project error shape on POST /api/run', async () => {
+    const { deps, run } = fakes();
+    const res = await request(createApp(deps), '/api/run', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: oversized,
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: { kind: 'validation', message: 'request body too large' },
+    });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('answers 413 with the project error shape on PUT /api/sets/:name', async () => {
+    const { deps, save } = fakes();
+    const res = await request(createApp(deps), '/api/sets/triage', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: oversized,
+    });
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({
+      error: { kind: 'validation', message: 'request body too large' },
+    });
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it('still rejects an oversized body from a disallowed host with 403', async () => {
+    const { deps } = fakes();
+    const res = await createApp(deps).request('/api/run', {
+      method: 'POST',
+      headers: { host: 'evil.example', 'content-type': 'application/json' },
+      body: oversized,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('a normal body still succeeds', async () => {
+    const { deps, run } = fakes();
+    const res = await postJson(createApp(deps), '/api/run', { request: REQUEST });
+    expect(res.status).toBe(200);
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('GET /api/history', () => {
   it.each([
     ['?limit=9999', 200],

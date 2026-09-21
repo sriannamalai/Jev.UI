@@ -12,6 +12,7 @@ import type {
 } from '@jev-ui/core';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { hostGuard } from './guard.js';
 import { toErrorResponse } from './httpError.js';
@@ -29,6 +30,19 @@ export interface AppDeps {
 
 const NO_WEB_BUILD_HINT =
   'Jev UI server is running. No web build is present; the API is available under /api.\n';
+
+// A request body larger than this is refused before it is read: the workbench's own documents are
+// a few kilobytes, so anything at this size is a mistake or an attempt to exhaust memory.
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+
+const limitBody = bodyLimit({
+  maxSize: MAX_BODY_BYTES,
+  onError: (c) =>
+    c.json(
+      { error: { kind: 'validation', message: 'request body too large' } } satisfies ErrorBody,
+      413,
+    ),
+});
 
 const DEFAULT_HISTORY_LIMIT = 20;
 const MAX_HISTORY_LIMIT = 200;
@@ -52,7 +66,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/models', async (c) => c.json(await deps.listModels()));
 
-  app.post('/api/run', async (c) => {
+  app.post('/api/run', limitBody, async (c) => {
     const body = await readJson(c);
     if (!body.ok) return invalid(c, body.message, body.path);
 
@@ -89,7 +103,7 @@ export function createApp(deps: AppDeps): Hono {
 
   app.get('/api/sets/:name', async (c) => c.json(await deps.sets.load(c.req.param('name'))));
 
-  app.put('/api/sets/:name', async (c) => {
+  app.put('/api/sets/:name', limitBody, async (c) => {
     const body = await readJson(c);
     if (!body.ok) return invalid(c, body.message, body.path);
 
