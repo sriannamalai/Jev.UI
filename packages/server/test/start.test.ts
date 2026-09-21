@@ -108,6 +108,22 @@ describe('startServer', () => {
     expect(text).not.toContain('ts-fake-key-zzz999');
   });
 
+  it('survives a post-listen error event and still closes cleanly', async () => {
+    const { port: free } = await occupy();
+    await release(sockets[sockets.length - 1] as net.Server);
+    sockets.pop();
+
+    const logged: string[] = [];
+    const server = await start({ port: free, env: {}, onError: (line) => logged.push(line) });
+
+    expect(() => server.server.emit('error', new Error('socket exploded'))).not.toThrow();
+    expect(logged).toEqual(['Jev UI server error: socket exploded']);
+
+    const res = await fetch(`${server.url}/api/health`);
+    expect(res.status).toBe(200);
+    await started.pop()?.close();
+  });
+
   it('frees the port on close', async () => {
     const { port: free } = await occupy();
     await release(sockets[sockets.length - 1] as net.Server);

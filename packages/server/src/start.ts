@@ -19,11 +19,15 @@ export interface StartOptions {
   setsDir?: string;
   webDir?: string;
   env?: NodeJS.ProcessEnv;
+  /** Where a post-listen server error is reported. Defaults to a single line on stderr. */
+  onError?: (message: string) => void;
 }
 
 export interface RunningServer {
   port: number;
   url: string;
+  /** The listening HTTP server, for callers that need the raw handle. */
+  server: ServerType;
   close(): Promise<void>;
 }
 
@@ -71,9 +75,19 @@ export async function startServer(opts: StartOptions = {}): Promise<RunningServe
   }
 
   const listener = server;
+
+  // The startup listener is removed once the port is bound, and a Node server with no `'error'`
+  // listener rethrows the event as an uncaught exception that would take the process down. Report
+  // a later error (a socket-level failure, say) on one line instead and keep serving.
+  const onError = opts.onError ?? ((message: string) => process.stderr.write(`${message}\n`));
+  listener.on('error', (err: Error) => {
+    onError(`Jev UI server error: ${err.message}`);
+  });
+
   return {
     port: boundPort,
     url: `http://${HOSTNAME}:${boundPort}`,
+    server: listener,
     close: () =>
       new Promise<void>((resolve, reject) => {
         // Keep-alive sockets would otherwise hold the listener open indefinitely.
