@@ -1,4 +1,4 @@
-// Footer status line (spec §8): resolved model/latency/tokens/cost after a
+// Footer status line: resolved model/latency/tokens/cost after a
 // run, or an estimate of the whole request's tokens and cost before one.
 import { costUsd, estimateTokens, formatUsd } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';

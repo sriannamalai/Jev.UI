@@ -1,4 +1,4 @@
-// Export code (spec §8, §8.1): copies the current request rendered as
+// Export code: copies the current request rendered as
 // cURL/Python/TypeScript to the clipboard, falling back to a read-only
 // dialog when the Clipboard API is missing or rejects.
 import { useEffect, useRef, useState } from 'react';

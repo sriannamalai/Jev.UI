@@ -7,9 +7,8 @@
 //     score answer's `legend`/`probabilities` built from however many levels
 //     the request's `questions.frustration.criteria` actually has, so editing
 //     the level count in the UI still yields a schema-valid answer.
-//   GET  /v1/models    -> `{ models: [...] }` (the shape the installed
-//     `@typesafe-ai/sdk`'s `unwrapModels` expects — see stub-upstream note in
-//     the task report for why this isn't a bare array).
+//   GET  /v1/models    -> `{ models: [...] }`, not a bare array: that is the
+//     shape the installed `@typesafe-ai/sdk`'s `unwrapModels` expects.
 //   anything else       -> 404 JSON.
 //
 // Every request's `Authorization` header is checked against `Bearer test-key`

@@ -15,7 +15,7 @@ import { KEYMAP } from '../src/tui/keys.js';
 import { App } from '../src/tui/App.js';
 import type { TuiDeps } from '../src/tui/App.js';
 
-// Full-App integration tests for slice 14b: open/save sets, export, editing
+// Full-App integration tests for: open/save sets, export, editing
 // the whole request in $EDITOR, quit confirmation, and the grouped help
 // overlay. The editor's own spawn/temp-file mechanics live in
 // tui-editor.test.ts; here `deps.openEditor` is a plain fake.

@@ -1,7 +1,7 @@
 // Reads `state.wb.error` and renders a dismissible banner naming what went
-// wrong (spec §9). Field-level `validation` errors are surfaced next to the
-// offending field elsewhere (Task 11); this banner just gives every error
-// kind, including `validation`, a one-line summary and a way to retry or
+// wrong. Field-level `validation` errors are surfaced next to the offending
+// field by the question cards and the state pane; this banner just gives every
+// error kind, including `validation`, a one-line summary and a way to retry or
 // dismiss.
 import type { JevErrorKind } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';

@@ -1,4 +1,4 @@
-// The application shell (spec §8, §8.1): top bar, the Build/JSON/Results
+// The application shell: top bar, the Build/JSON/Results
 // three-column layout (unmounting whichever pane the current mode doesn't
 // need, rather than hiding it — the JSON pane's CodeMirror instance must
 // not run while it's off-screen), and the status bar. `health.keyConfigured`

@@ -1,4 +1,4 @@
-// The top bar's model picker (spec §8): a combobox built from an
+// The top bar's model picker: a combobox built from an
 // `<input list>` + `<datalist>` so a pinned model id can be typed freely
 // even though it isn't one of `/api/models`'s names. Commits on blur/Enter,
 // never on every keystroke, and an empty commit reverts rather than

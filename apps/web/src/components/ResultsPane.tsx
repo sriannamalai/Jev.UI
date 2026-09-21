@@ -1,4 +1,4 @@
-// The Results column (spec §8): per-question answer blocks in request
+// The Results column: per-question answer blocks in request
 // order, selectable in sync with the other panes, marked stale as soon as
 // the request changes after a run.
 import { type CSSProperties, type KeyboardEvent } from 'react';

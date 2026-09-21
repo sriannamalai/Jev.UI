@@ -1,5 +1,5 @@
-// The JSON pane: a CodeMirror 6 editor controlled by `state.jsonText`
-// (spec §8.1). Two directions of sync, kept deliberately separate:
+// The JSON pane: a CodeMirror 6 editor controlled by `state.jsonText`.
+// Two directions of sync, kept deliberately separate:
 //
 //   doc -> store: user keystrokes are debounced 150ms before becoming a
 //   `jsonEdited` dispatch, so the store (and the form it drives) isn't

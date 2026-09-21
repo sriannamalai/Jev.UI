@@ -1,5 +1,5 @@
-// The TUI's asynchronous side flows (spec §8.2): open a saved set, save,
-// export, and editing the whole request in `$EDITOR`. Plain functions taking
+// The TUI's asynchronous side flows: open a saved set, save, export, and
+// editing the whole request in `$EDITOR`. Plain functions taking
 // `deps`, the current workbench state and a small bundle of UI callbacks, so
 // `App.tsx` keeps only the frame, focus, selection and key routing.
 import * as nodePath from 'node:path';

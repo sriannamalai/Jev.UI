@@ -1,4 +1,4 @@
-// The Enter-to-edit step sequencer (spec §8.2): a question is edited as a
+// The Enter-to-edit step sequencer: a question is edited as a
 // short series of prompts (Instructions, then the type's own fields), each
 // committed as it is submitted so the next step builds on the latest draft.
 // Kept out of App.tsx, which only owns the frame, focus and key routing.

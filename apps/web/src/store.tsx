@@ -1,5 +1,5 @@
 // Web-specific layer over the shared, pure `workbenchReducer`. Adds the
-// Form <-> JSON two-way sync (spec §8.1): editing the form re-serialises the
+// Form <-> JSON two-way sync: editing the form re-serialises the
 // JSON pane; editing JSON parses + validates on every change and only
 // updates the form when the result is valid; while the JSON pane has focus
 // it is never re-serialised underneath the user.

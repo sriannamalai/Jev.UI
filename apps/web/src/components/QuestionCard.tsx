@@ -1,6 +1,6 @@
 // One question's chrome: type tag, inline-editable id, duplicate/delete/
-// move controls, and an expand/collapse body. The per-type form fields are
-// mounted by a later task into the `data-slot="question-form"` placeholder.
+// move controls, and an expand/collapse body. `QuestionForm` renders the
+// per-type fields inside that body.
 import { useEffect, useState, type KeyboardEvent } from 'react';
 import { isValidQuestionId, questionIds, type Question } from '@jev-ui/core/browser';
 import { useWorkbench } from '../store.js';

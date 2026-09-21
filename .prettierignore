@@ -1,5 +1,7 @@
 dist
 pnpm-lock.yaml
-.superpowers
-.remember
 **/golden/**
+
+# Local tooling state lives in dot-directories; the workflow config is still checked.
+.*/
+!.github/

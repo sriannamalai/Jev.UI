@@ -1,4 +1,4 @@
-// Small hand-rolled text editors for the TUI's edit keys (spec §8.2).
+// Small hand-rolled text editors for the TUI's edit keys.
 // `ink-text-input` isn't a dependency here — these build directly on Ink's
 // `useInput` so the editing model (cursor, scrolling, validation) stays in
 // one place and is exercised the same way `handleKey` is.

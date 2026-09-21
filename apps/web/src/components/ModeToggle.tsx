@@ -1,4 +1,4 @@
-// The Form/Split/JSON three-way toggle (spec §8.1). `Mode` lives in the web
+// The Form/Split/JSON three-way toggle. `Mode` lives in the web
 // store, not core, so it is imported as a type only.
 import type { Mode } from '../store.js';
 

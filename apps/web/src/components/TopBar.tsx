@@ -1,4 +1,4 @@
-// The application's top bar (spec §8): set/model pickers, the Form/Split/
+// The application's top bar: set/model pickers, the Form/Split/
 // JSON mode toggle, Save, Export code, the theme toggle, the API-key
 // indicator, and Run. Every action that needs the API (running, saving,
 // loading a set) goes through `useWorkbench()`, which is already bound to

@@ -2,7 +2,8 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
   {
-    ignores: ['**/dist/**', '**/coverage/**', '.superpowers/**', '.remember/**'],
+    // Dot-directories at the repository root are local tooling state, never source.
+    ignores: ['**/dist/**', '**/coverage/**', '.*/**'],
   },
   ...tseslint.configs.recommended,
 );

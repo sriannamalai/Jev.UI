@@ -1,4 +1,4 @@
-// The TUI's Results pane (spec §8): per-question answer blocks in request
+// The TUI's Results pane: per-question answer blocks in request
 // order, mirroring `apps/web`'s ResultsPane ordering/stale rules, rendered
 // as text for a terminal via Ink instead of DOM.
 import { Box, Text } from 'ink';

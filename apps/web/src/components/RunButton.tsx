@@ -1,6 +1,6 @@
-// The Run button (spec §8, §8.1): disabled while the JSON pane has an
-// error, while no API key is configured, or while the request itself is
-// invalid — the `title` always explains which. Installs the global
+// The Run button: disabled while the JSON pane has an error, while no API
+// key is configured, or while the request itself is invalid — the `title`
+// always explains which. Installs the global
 // `⌘/Ctrl+Enter` shortcut whenever it isn't disabled.
 import { runBlockers } from '@jev-ui/core/browser';
 import { selectCanRun, useWorkbench } from '../store.js';

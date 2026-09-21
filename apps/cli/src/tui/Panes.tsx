@@ -1,5 +1,5 @@
 // The TUI's State and Questions panes, plus the `Frame` border shared by all
-// three (spec §8.2). `Results.tsx` (13a) is the third pane's content.
+// three. `Results.tsx` is the third pane's content.
 import type { ReactNode } from 'react';
 import { Box, Text } from 'ink';
 import { DEFAULT_MODEL, estimateStateBudget, LIMITS, questionIds } from '@jev-ui/core';

@@ -1,4 +1,4 @@
-// The TUI's footer line (spec §8): resolved model, latency, input tokens,
+// The TUI's footer line: resolved model, latency, input tokens,
 // and cost — or the key-not-configured hint when running is disabled.
 import { Text } from 'ink';
 import { formatUsd } from '@jev-ui/core';

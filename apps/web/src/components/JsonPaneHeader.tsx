@@ -1,5 +1,5 @@
 // Pure presentational header for the JSON pane: title plus a status readout
-// that mirrors the pane's current validity/sync state (spec §8.1).
+// that mirrors the pane's current validity/sync state.
 export interface JsonPaneError {
   message: string;
   line?: number;

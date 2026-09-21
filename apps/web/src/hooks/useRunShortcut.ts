@@ -1,4 +1,4 @@
-// The global `⌘/Ctrl+Enter` run shortcut (spec §8.1). Installed by
+// The global `⌘/Ctrl+Enter` run shortcut. Installed by
 // `RunButton` with `enabled` mirroring the button's own disabled state, so
 // the shortcut and the button always agree on whether a run can start.
 import { useEffect } from 'react';

@@ -1,6 +1,6 @@
 // The TUI's app frame: three panes (wide) or a tab strip + one pane
 // (narrow), focus, selection, run, the editing keys and the quit
-// confirmation (spec §8.2). The per-type question edit steps live in
+// confirmation. The per-type question edit steps live in
 // QuestionEditor.tsx; the sets/export/$EDITOR flows in flows.ts.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { ReactElement } from 'react';

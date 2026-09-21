@@ -4,7 +4,7 @@ import type { HistoryStore, Request, RunResult, SetsStore } from '@jev-ui/core';
 import { App } from '../src/tui/App.js';
 import type { TuiDeps } from '../src/tui/App.js';
 
-// Full-App integration tests for slice 14a's editing keys (a/d/D/J/K/Enter/
+// Full-App integration tests for the editing keys (a/d/D/J/K/Enter/
 // n/i/m). The pure round-trip/validation rules for choice/score criteria
 // live in tui-question-edit.test.ts; the prompt widgets' own key handling
 // lives in tui-prompts.test.tsx. This file exercises them wired into `App`.

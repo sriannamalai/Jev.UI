@@ -1,5 +1,5 @@
 // Tracks a CSS media query so layout decisions (like the narrow-viewport
-// tab fallback, spec §8.1) can be made in JS as well as CSS. `matchMedia`
+// tab fallback) can be made in JS as well as CSS. `matchMedia`
 // can be missing or throw in non-browser/test environments, so every access
 // is wrapped in try/catch; the safe default is `false` (the wide layout).
 import { useEffect, useState } from 'react';

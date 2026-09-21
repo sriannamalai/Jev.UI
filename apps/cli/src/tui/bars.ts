@@ -3,7 +3,7 @@
 import stringWidth from 'string-width';
 
 /** Confidence values at or above this threshold read as normal; below it
- * they render as a warning (spec §8.2). Matches `apps/web`'s `LOW_CONFIDENCE`. */
+ * they render as a warning. Matches `apps/web`'s `LOW_CONFIDENCE`. */
 export const LOW_CONFIDENCE = 0.8;
 
 /** Format a number to two decimal places; a non-finite value (NaN, ±Infinity)

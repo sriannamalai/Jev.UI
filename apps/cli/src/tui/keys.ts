@@ -1,6 +1,6 @@
-// Single entry point for the TUI's keyboard handling (spec §8.2). Kept as one
-// function, routed through one `KeyContext`, so the next task (sets/export/
-// $EDITOR/quit-confirm) can extend it here rather than scattering `useInput`
+// Single entry point for the TUI's keyboard handling. Kept as one function,
+// routed through one `KeyContext`, so further commands (sets, export, $EDITOR,
+// the quit confirmation) extend it here rather than scattering `useInput`
 // handlers across components.
 import type { Key } from 'ink';
 

@@ -1,4 +1,4 @@
-// Save (spec §8): saves directly when the document already has a set name,
+// Save: saves directly when the document already has a set name,
 // otherwise opens an inline name field validated live against
 // `SET_NAME_RE`. A rejection is shown inline — it must never dispatch
 // `runFail`, since a failed save is not a failed run.

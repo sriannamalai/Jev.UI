@@ -1,4 +1,4 @@
-// The three-way light/dark theme, persisted in `localStorage` (spec §8.1).
+// The three-way light/dark theme, persisted in `localStorage`.
 // Every storage/matchMedia access is wrapped in try/catch so this works in
 // jsdom, private browsing, and any environment where either API is missing
 // or throws.

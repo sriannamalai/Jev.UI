@@ -1,4 +1,4 @@
-// The light/dark theme toggle (spec §8.1). All the persistence/detection
+// The light/dark theme toggle. All the persistence/detection
 // logic lives in `useTheme`; this is purely a labelled button over it.
 import { useTheme } from '../hooks/useTheme.js';
 

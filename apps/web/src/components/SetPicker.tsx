@@ -1,4 +1,4 @@
-// The top bar's set picker (spec §8): a labelled select listing every saved
+// The top bar's set picker: a labelled select listing every saved
 // set, with invalid sets disabled and their parse error surfaced as a
 // tooltip. Loading over unsaved changes asks first, inline, rather than
 // with `window.confirm`.

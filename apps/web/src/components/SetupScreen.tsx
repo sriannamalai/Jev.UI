@@ -1,5 +1,5 @@
 // Non-blocking notice shown when `/api/health` reports no API key
-// configured (spec §9). Editing still works; the shell disables Run.
+// configured. Editing still works; the shell disables Run.
 export function SetupScreen(props: { keyConfigured: boolean | undefined }) {
   if (props.keyConfigured !== false) return null;
 

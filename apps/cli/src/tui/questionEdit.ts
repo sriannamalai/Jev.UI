@@ -1,5 +1,5 @@
 // Pure, Ink-free helpers for turning a Choice/Score question's criteria into
-// editable text lines and back (spec §8.2's Enter-to-edit flow). Kept
+// editable text lines and back (the Enter-to-edit flow). Kept
 // separate from any Ink component so the round-trip and rejection rules are
 // unit-testable without a terminal.
 import { LIMITS } from '@jev-ui/core';
