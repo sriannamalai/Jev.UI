@@ -85,11 +85,6 @@ and prints a readable result. Useful flags:
 | `1`       | The request reached the API but failed (auth, validation, rate limit, timeout, etc.) |
 | `2`       | Usage error — bad arguments, missing state, no API key, or an invalid question set   |
 
-A 400 response from the API (for example, a question with neither `instructions` nor `criteria`)
-currently surfaces as a generic validation error rather than the upstream message, when that
-response's `detail` field is a plain string rather than the structured shape Jev.UI knows how to
-unwrap.
-
 ## The web workbench
 
 The main view has three modes, toggled at the top: **Form** (guided question editors), **JSON**

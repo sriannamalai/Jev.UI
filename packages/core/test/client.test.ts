@@ -127,6 +127,38 @@ test('400 unknown-model body maps to validation with no path', async () => {
   });
 });
 
+test('400 with a string detail surfaces the message and the question path', async () => {
+  const stringDetailReq: Request = {
+    state: 'A customer says: I was charged twice.',
+    model: 'jev-1.13.0',
+    questions: { question_1: { type: 'noul', instructions: '' } },
+  };
+  const fetch = vi.fn(async () =>
+    fail(400, { detail: 'Noul question must have criteria or instructions: question_1' }),
+  );
+  await expect(run(stringDetailReq, { apiKey: 'k', fetch, maxRetries: 0 })).rejects.toMatchObject({
+    kind: 'validation',
+    message: 'Noul question must have criteria or instructions: question_1',
+    path: 'questions.question_1',
+  });
+});
+
+test('400 with a string detail naming an unknown id yields no path', async () => {
+  const stringDetailReq: Request = {
+    state: 'A customer says: I was charged twice.',
+    model: 'jev-1.13.0',
+    questions: { question_1: { type: 'noul', instructions: '' } },
+  };
+  const fetch = vi.fn(async () =>
+    fail(400, { detail: 'Noul question must have criteria or instructions: not_a_question' }),
+  );
+  await expect(run(stringDetailReq, { apiKey: 'k', fetch, maxRetries: 0 })).rejects.toMatchObject({
+    kind: 'validation',
+    message: 'Noul question must have criteria or instructions: not_a_question',
+    path: undefined,
+  });
+});
+
 test('429 maps to rateLimit with retryAfterMs from the retry-after header', async () => {
   const fetch = vi.fn(async () =>
     fail(

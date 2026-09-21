@@ -73,6 +73,25 @@ function detailMessage(body: unknown): string | undefined {
   return typeof message === 'string' ? message : undefined;
 }
 
+/** Extract `body.detail` when the body is `{ detail: 'some sentence' }` (the plain-string shape). */
+function detailString(body: unknown): string | undefined {
+  if (typeof body !== 'object' || body === null) return undefined;
+  const detail = (body as Record<string, unknown>).detail;
+  return typeof detail === 'string' ? detail : undefined;
+}
+
+/**
+ * Derive a highlightable `questions.<id>` path from an upstream message that ends in `: <id>`,
+ * but only when `<id>` is actually one of the request's question ids — a message that merely
+ * happens to end in `: something` must not produce a path pointing at a question that isn't there.
+ */
+function questionPathFrom(message: string, ids: readonly string[]): string | undefined {
+  const match = /:\s*([A-Za-z_][A-Za-z0-9_-]*)\s*$/.exec(message);
+  const id = match?.[1];
+  if (id === undefined || !ids.includes(id)) return undefined;
+  return `questions.${id}`;
+}
+
 /** Extract the first entry of `body.detail` when the body is `{ detail: [...] }` (422 shape). */
 function firstDetailEntry(body: unknown): Record<string, unknown> | undefined {
   if (typeof body !== 'object' || body === null) return undefined;
@@ -96,7 +115,10 @@ function firstDetailEntry(body: unknown): Record<string, unknown> | undefined {
  * `unexpected`. `buildClient`'s own construction failures are already tagged as `JevError` before
  * they can reach here, so they're unaffected by this flag either way (see the first check below).
  */
-function mapError(err: unknown, options?: { preflightAsValidation?: boolean }): never {
+function mapError(
+  err: unknown,
+  options?: { preflightAsValidation?: boolean; questionIds?: readonly string[] },
+): never {
   if (err instanceof JevError) throw err;
   if (err instanceof APIUserAbortError) throw err;
   if (err instanceof APITimeoutError) throw new JevError('timeout', err.message);
@@ -122,8 +144,9 @@ function mapError(err: unknown, options?: { preflightAsValidation?: boolean }): 
     throw new JevError('validation', msg, { path, status: err.status });
   }
   if (err instanceof BadRequestError) {
-    const message = detailMessage(err.body) ?? `HTTP ${err.status}`;
-    throw new JevError('validation', message, { status: err.status });
+    const message = detailMessage(err.body) ?? detailString(err.body) ?? `HTTP ${err.status}`;
+    const path = questionPathFrom(message, options?.questionIds ?? []);
+    throw new JevError('validation', message, { path, status: err.status });
   }
   if (err instanceof APIError) {
     const message = detailMessage(err.body) ?? `HTTP ${err.status}`;
@@ -139,7 +162,7 @@ function mapError(err: unknown, options?: { preflightAsValidation?: boolean }): 
 /** Run `fn`, normalising any rejection into a `JevError` (or rethrowing an abort as-is). */
 async function guarded<T>(
   fn: () => Promise<T>,
-  mapOptions?: { preflightAsValidation?: boolean },
+  mapOptions?: { preflightAsValidation?: boolean; questionIds?: readonly string[] },
 ): Promise<T> {
   try {
     return await fn();
@@ -248,7 +271,7 @@ export async function run(request: Request, opts?: ClientOptions): Promise<RunRe
         signal: opts?.signal,
       });
     },
-    { preflightAsValidation: true },
+    { preflightAsValidation: true, questionIds: Object.keys(request.questions ?? {}) },
   );
 
   const latencyMs = now() - start;
