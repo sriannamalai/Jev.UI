@@ -273,11 +273,10 @@ export function editInEditorFlow(
       await suspendTerminal(async () => {
         result = await deps.openEditor(text);
         // Keys typed while the editor was handing the terminal back stay in
-        // the buffer and are replayed as commands. Ink owns stdin (it is not
-        // exposed through `useApp`, and `deps` deliberately has no handle on
-        // the real stream, so tests drive a fake one), so there is no safe
-        // way to drain it from here — left as-is rather than reaching into
-        // `process.stdin` behind Ink's back.
+        // the buffer and are replayed as commands once input resumes.
+        // Draining them is possible — `useStdin()` hands out the stream and
+        // input is paused for the duration of the suspension — but it is
+        // deliberately not implemented yet.
       });
       if (!ui.isMounted()) {
         ui.done();
