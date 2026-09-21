@@ -457,6 +457,9 @@ describe('StatusBar', () => {
     const footer = screen.getByRole('contentinfo');
     const n = estimateTokens(quickStartRequest);
     expect(footer.textContent).toContain(`≈ ${n} tok`);
+    // The figure covers the whole request, not the state pane's state + largest
+    // question, so the label has to say which of the two this is.
+    expect(footer.textContent).toContain('request text only');
     expect(footer.textContent).toContain(`≈ ${formatUsd(costUsd(n))}`);
   });
 });

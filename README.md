@@ -218,10 +218,17 @@ numeric order regardless of how they were typed, ahead of any non-numeric option
 ## Cost and limits
 
 Jev.UI estimates cost using a fixed price-per-input-token constant baked into the app; it's a
-constant maintained here, not a live lookup, so it can lag TypeSafe's published pricing. The state
-editor shows a live token estimate against a 32,000-token soft budget, and the full request has a
-64,000-token budget. Any token or cost figure shown before you run is only an estimate of the
-state plus the largest question — the API's own count, returned after the call, is higher.
+constant maintained here, not a live lookup, so it can lag TypeSafe's published pricing.
+
+Two different pre-run figures are shown, and they measure different things:
+
+- The **State pane's meter** counts the state plus the single largest question, against a
+  32,000-token soft budget. That pairing is what the API applies its per-question limit to.
+- The **status bar's `≈ N tok (request text only)`**, and the cost beside it, count the whole
+  request — state and every question together — against a 64,000-token budget.
+
+Both are estimates of the text you wrote. The API's own count, returned after the call, is higher
+than either, because it also includes the prompt overhead upstream adds around your request.
 
 ## Security model
 
