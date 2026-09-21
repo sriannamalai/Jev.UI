@@ -414,6 +414,44 @@ describe('e: export', () => {
     await tick();
     expect(writeFile).not.toHaveBeenCalled();
   });
+
+  it('never replaces a pending quit confirmation with the overwrite prompt', async () => {
+    const writeFile = vi.fn(async () => undefined);
+    let resolveExists: (exists: boolean) => void = () => undefined;
+    const deps = makeDeps({
+      columns: 140,
+      fileExists: vi.fn(
+        () =>
+          new Promise<boolean>((resolve) => {
+            resolveExists = resolve;
+          }),
+      ),
+      writeFile,
+    });
+    const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
+    await makeDirty(stdin);
+
+    stdin.write('e');
+    await tick();
+    stdin.write('c');
+    await tick();
+
+    stdin.write('q');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Quit without saving?');
+
+    resolveExists(true);
+    await tick();
+    await tick();
+    // The flow must not have pushed its own prompt over the quit confirmation.
+    expect(lastFrame() ?? '').toContain('Quit without saving?');
+    expect(lastFrame() ?? '').not.toContain('Overwrite');
+
+    stdin.write('y');
+    await tick();
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(exited).toHaveBeenCalled();
+  });
 });
 
 describe('E: edit the full request in $EDITOR', () => {

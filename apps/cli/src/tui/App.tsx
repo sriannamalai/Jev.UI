@@ -170,6 +170,10 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   // flow (from keypress to its final notice/dispatch or cancellation),
   // including any prompt it opens along the way.
   const busyRef = useRef(false);
+  // Set while the quit confirmation is on screen. A side flow that comes back
+  // from an await in the meantime must not push its own prompt over it — the
+  // user's next `y` belongs to the quit question, not to the flow's.
+  const quitPendingRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -352,15 +356,24 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   function runFlow(start: (ui: FlowUi) => void): void {
     if (busyRef.current) return;
     busyRef.current = true;
+    const release = () => {
+      busyRef.current = false;
+    };
     start({
-      openPrompt,
+      openPrompt: (spec) => {
+        // Abandon the flow rather than take the screen from a pending quit:
+        // nothing is written and the busy guard is released.
+        if (quitPendingRef.current) {
+          release();
+          return;
+        }
+        openPrompt(spec);
+      },
       closePrompt,
       setNotice,
       dispatch,
-      isMounted: () => mountedRef.current,
-      done: () => {
-        busyRef.current = false;
-      },
+      isMounted: () => mountedRef.current && !quitPendingRef.current,
+      done: release,
     });
   }
 
@@ -385,6 +398,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       appExit();
       return;
     }
+    quitPendingRef.current = true;
     openPrompt({
       kind: 'choice',
       label: 'Quit without saving?',
@@ -397,9 +411,13 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
           appExit();
           return;
         }
+        quitPendingRef.current = false;
         closePrompt();
       },
-      onCancel: closePrompt,
+      onCancel: () => {
+        quitPendingRef.current = false;
+        closePrompt();
+      },
       onCtrlC: appExit,
     });
   }

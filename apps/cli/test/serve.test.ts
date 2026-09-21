@@ -37,7 +37,9 @@ function makeSignals(): SignalSource & { emit(event: 'SIGINT' | 'SIGTERM'): void
 }
 
 function makeServer(close: () => Promise<void>): RunningServer {
-  return { port: 4173, url: 'http://127.0.0.1:4173', close };
+  // `runServe` never touches the raw listener, so a bare stand-in is enough here.
+  const server = {} as RunningServer['server'];
+  return { port: 4173, url: 'http://127.0.0.1:4173', server, close };
 }
 
 describe('runServe', () => {
