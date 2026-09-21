@@ -224,11 +224,14 @@ Two different pre-run figures are shown, and they measure different things:
 
 - The **State pane's meter** counts the state plus the single largest question, against a
   32,000-token soft budget. That pairing is what the API applies its per-question limit to.
-- The **status bar's `≈ N tok (request text only)`**, and the cost beside it, count the whole
-  request — state and every question together — against a 64,000-token budget.
+- The **status bar's `≈ N tok (request text only)`**, and the cost beside it, are just an estimate
+  of the whole request's text — state and every question together. The app does not currently
+  display or enforce a budget for this figure.
 
 Both are estimates of the text you wrote. The API's own count, returned after the call, is higher
 than either, because it also includes the prompt overhead upstream adds around your request.
+Separately, the API applies its own 64,000-token limit to the whole request; Jev.UI does not
+currently check or surface that limit before you run.
 
 ## Security model
 

@@ -15,8 +15,8 @@ export const PANES: readonly Pane[] = ['state', 'questions', 'results'];
  * overlay; only Esc does anything while it's open. */
 export type Mode = 'normal' | 'prompt' | 'help';
 
-/** Every key this slice understands, key label -> what it does. Rendered
- * verbatim by the help overlay ('?'), grouped by `KEY_GROUPS`. */
+/** The complete TUI keymap, key label -> what it does. Rendered verbatim by
+ * the help overlay ('?'), grouped by `KEY_GROUPS`. */
 export const KEYMAP: Record<string, string> = {
   Tab: 'cycle panes',
   '1 / 2 / 3': 'jump to a pane',
