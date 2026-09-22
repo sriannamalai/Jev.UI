@@ -29,7 +29,7 @@ function waitForExit(child, timeoutMs = 10_000) {
       clearTimeout(timeout);
       reject(error);
     });
-    child.once('exit', (code, signal) => {
+    child.once('close', (code, signal) => {
       clearTimeout(timeout);
       resolve({ code, signal });
     });
@@ -229,5 +229,5 @@ try {
     `binary smoke passed: ${metadata.os}/${metadata.arch}, ${metadata.binarySize} bytes\n`,
   );
 } finally {
-  await rm(root, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
