@@ -93,16 +93,17 @@ jobs:
         with:
           ref: ${{ env.SOURCE_REF }}
           persist-credentials: false
-      - name: Set up pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: 11.17.0
       - name: Set up Node 24.21.0
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.21.0
           architecture: ${{ matrix.node_architecture }}
-          cache: pnpm
+      # pnpm 11 on Intel macOS requires the Node-backed bootstrap.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.17.0
+          cache: true
       - name: Verify requested version
         shell: bash
         run: |
