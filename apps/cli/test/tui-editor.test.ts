@@ -91,6 +91,28 @@ describe('openInEditor', () => {
     await promise;
   });
 
+  it('falls back to notepad.exe on Windows when neither VISUAL nor EDITOR is set', async () => {
+    const { spawn, calls, children } = fakeSpawn();
+    const promise = openInEditor('x', {}, { spawn, platform: 'win32' });
+    await waitForSpawn(calls);
+    expect(calls[0]!.command).toBe('notepad.exe');
+    children[0]!.emit('exit', 0, null);
+    await promise;
+  });
+
+  it('keeps VISUAL ahead of EDITOR and the Windows fallback', async () => {
+    const { spawn, calls, children } = fakeSpawn();
+    const promise = openInEditor(
+      'x',
+      { VISUAL: 'visual-editor', EDITOR: 'editor-editor' },
+      { spawn, platform: 'win32' },
+    );
+    await waitForSpawn(calls);
+    expect(calls[0]!.command).toBe('visual-editor');
+    children[0]!.emit('exit', 0, null);
+    await promise;
+  });
+
   it('resolves with the rewritten file contents after a successful exit', async () => {
     const { spawn, calls, children } = fakeSpawn((file) => {
       void writeFile(file, 'rewritten contents');

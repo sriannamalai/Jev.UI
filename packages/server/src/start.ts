@@ -1,5 +1,4 @@
 import { promises as fs } from 'node:fs';
-import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { serve } from '@hono/node-server';
 import type { ServerType } from '@hono/node-server';
@@ -13,6 +12,7 @@ import {
   run,
 } from '@jev-ui/core';
 import { createApp } from './app.js';
+import { SERVER_VERSION } from './version.js';
 
 export interface StartOptions {
   port?: number;
@@ -35,11 +35,7 @@ export const DEFAULT_PORT = 4173;
 const MAX_PORT_ATTEMPTS = 20;
 const HOSTNAME = '127.0.0.1';
 
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json') as { version: string };
-
-/** The server package's own version, reported by `GET /api/health`. */
-export const SERVER_VERSION = version;
+export { SERVER_VERSION } from './version.js';
 
 /** Start the localhost server, bumping the port while the requested one is taken. */
 export async function startServer(opts: StartOptions = {}): Promise<RunningServer> {

@@ -1,5 +1,4 @@
 import { realpathSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { Command, CommanderError, InvalidArgumentError } from 'commander';
 import { runAsk as defaultRunAsk } from './ask.js';
@@ -7,9 +6,9 @@ import type { AskOptions, Io } from './ask.js';
 import { runServe as defaultRunServe } from './serve.js';
 import type { ServeOptions } from './serve.js';
 import { runTui } from './tui/runTui.js';
+import { CLI_VERSION } from './version.js';
 
-const require = createRequire(import.meta.url);
-const { version } = require('../package.json') as { version: string };
+declare const __JEV_UI_SEA_BUNDLE__: boolean | undefined;
 
 export type RunTui = (io: Io) => void | Promise<void>;
 
@@ -65,7 +64,7 @@ export function buildProgram(deps: Partial<BinDeps> = {}): Command {
   program
     .name('jev')
     .description('Jev.UI — a workbench for TypeSafe Jev question sets')
-    .version(version)
+    .version(CLI_VERSION)
     .option('--sets-dir <dir>', 'directory containing question sets');
 
   program
@@ -156,6 +155,6 @@ export async function main(
   }
 }
 
-if (isEntryPoint()) {
+if ((typeof __JEV_UI_SEA_BUNDLE__ !== 'boolean' || !__JEV_UI_SEA_BUNDLE__) && isEntryPoint()) {
   void main(process.argv);
 }

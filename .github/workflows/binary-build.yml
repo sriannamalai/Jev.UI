@@ -1,0 +1,189 @@
+name: Native binary build
+
+on:
+  workflow_call:
+    inputs:
+      source_ref:
+        description: Commit SHA or restricted Git ref to build
+        required: false
+        type: string
+      version:
+        description: Expected package version
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-inputs:
+    name: Validate source and version
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    env:
+      SOURCE_REF: ${{ inputs.source_ref || github.sha }}
+      REQUESTED_VERSION: ${{ inputs.version || '' }}
+    steps:
+      - name: Reject unsafe inputs
+        shell: bash
+        run: |
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            const sourceRef = process.env.SOURCE_REF;
+            const version = process.env.REQUESTED_VERSION;
+            if (!/^[0-9A-Za-z][0-9A-Za-z._/@-]{0,255}$/.test(sourceRef)) {
+              throw new Error(`Unsafe source ref: ${sourceRef}`);
+            }
+            if (version && !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(version)) {
+              throw new Error(`Unsafe version: ${version}`);
+            }
+          '
+
+  native:
+    name: ${{ matrix.target_os }}-${{ matrix.target_arch }}
+    needs: validate-inputs
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-26.04
+            target_os: linux
+            target_arch: amd64
+            node_platform: linux
+            node_architecture: x64
+            executable: dist/release/jev
+          - runner: ubuntu-26.04-arm
+            target_os: linux
+            target_arch: arm64
+            node_platform: linux
+            node_architecture: arm64
+            executable: dist/release/jev
+          - runner: macos-26-intel
+            target_os: darwin
+            target_arch: amd64
+            node_platform: darwin
+            node_architecture: x64
+            executable: dist/release/jev
+          - runner: macos-26
+            target_os: darwin
+            target_arch: arm64
+            node_platform: darwin
+            node_architecture: arm64
+            executable: dist/release/jev
+          - runner: windows-2025
+            target_os: windows
+            target_arch: amd64
+            node_platform: win32
+            node_architecture: x64
+            executable: dist/release/jev.exe
+          - runner: windows-11-arm
+            target_os: windows
+            target_arch: arm64
+            node_platform: win32
+            node_architecture: arm64
+            executable: dist/release/jev.exe
+    env:
+      SOURCE_REF: ${{ inputs.source_ref || github.sha }}
+      REQUESTED_VERSION: ${{ inputs.version || '' }}
+    steps:
+      - name: Checkout requested source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.SOURCE_REF }}
+          persist-credentials: false
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.17.0
+      - name: Set up Node 24.21.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+          architecture: ${{ matrix.node_architecture }}
+          cache: pnpm
+      - name: Verify requested version
+        shell: bash
+        run: |
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            const expected = process.env.REQUESTED_VERSION;
+            const actual = JSON.parse(await (await import("node:fs/promises")).readFile("apps/cli/package.json", "utf8")).version;
+            if (expected && expected !== actual) throw new Error(`Requested ${expected}, checked out ${actual}`);
+          '
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build workspace
+        run: pnpm build
+      - name: Build native binary
+        run: pnpm build:binary
+      - name: Verify native target architecture
+        run: node scripts/release/verify-native-target.mjs ${{ matrix.node_platform }} ${{ matrix.node_architecture }} ${{ matrix.executable }}
+      - name: Smoke native binary
+        run: node scripts/release/smoke-binary.mjs ${{ matrix.executable }}
+      - name: Archive native binary
+        run: node scripts/release/archive.mjs dist/release dist/artifacts
+      - name: Re-extract and smoke on Unix
+        if: matrix.target_os != 'windows'
+        shell: bash
+        run: |
+          version=$(node --input-type=module -e 'console.log(JSON.parse(await (await import("node:fs/promises")).readFile("dist/release/build-metadata.json", "utf8")).version)')
+          mkdir -p dist/unpacked
+          tar -xzf "dist/artifacts/jev_${version}_${{ matrix.target_os }}_${{ matrix.target_arch }}.tar.gz" -C dist/unpacked
+          node scripts/release/smoke-binary.mjs dist/unpacked/jev
+      - name: Re-extract and smoke on Windows
+        if: matrix.target_os == 'windows'
+        shell: pwsh
+        run: |
+          $metadata = Get-Content dist/release/build-metadata.json | ConvertFrom-Json
+          $archive = "dist/artifacts/jev_$($metadata.version)_windows_${{ matrix.target_arch }}.zip"
+          Expand-Archive -LiteralPath $archive -DestinationPath dist/unpacked -Force
+          node scripts/release/smoke-binary.mjs dist/unpacked/jev.exe
+      - name: Upload native archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: jev-${{ matrix.target_os }}-${{ matrix.target_arch }}
+          path: dist/artifacts/*
+          if-no-files-found: error
+          archive: true
+          compression-level: 0
+          retention-days: 7
+
+  verify-artifacts:
+    name: Verify six native archives
+    needs: native
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Download native archives
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: jev-*
+          path: dist/downloaded-artifacts
+      - name: Verify sidecar checksums
+        shell: bash
+        run: |
+          # shellcheck disable=SC2016
+          node --input-type=module -e '
+            import { createHash } from "node:crypto";
+            import { readdir, readFile } from "node:fs/promises";
+            import path from "node:path";
+            const root = "dist/downloaded-artifacts";
+            const files = [];
+            async function visit(directory) {
+              for (const entry of await readdir(directory, { withFileTypes: true })) {
+                const file = path.join(directory, entry.name);
+                if (entry.isDirectory()) await visit(file); else files.push(file);
+              }
+            }
+            await visit(root);
+            const sidecars = files.filter((file) => file.endsWith(".json"));
+            if (sidecars.length !== 6) throw new Error(`Expected six sidecars, found ${sidecars.length}`);
+            for (const sidecarFile of sidecars) {
+              const sidecar = JSON.parse(await readFile(sidecarFile, "utf8"));
+              const archive = path.join(path.dirname(sidecarFile), sidecar.file);
+              const actual = createHash("sha256").update(await readFile(archive)).digest("hex");
+              if (actual !== sidecar.sha256) throw new Error(`Checksum mismatch: ${sidecar.file}`);
+            }
+          '

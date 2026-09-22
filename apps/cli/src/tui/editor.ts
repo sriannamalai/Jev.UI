@@ -20,9 +20,10 @@ interface SpawnedProcess {
 
 export interface OpenInEditorDeps {
   spawn(command: string, args: string[], options: { stdio: 'inherit' }): SpawnedProcess;
+  platform?: NodeJS.Platform;
 }
 
-const defaultDeps: OpenInEditorDeps = { spawn: nodeSpawn };
+const defaultDeps: OpenInEditorDeps = { spawn: nodeSpawn, platform: process.platform };
 
 /** Write `text` to a private temp file, hand it to `$VISUAL`/`$EDITOR`/`vi`
  * with the terminal attached (`stdio: 'inherit'`), and resolve with the
@@ -35,10 +36,11 @@ export async function openInEditor(
 ): Promise<string> {
   // A whitespace-only $VISUAL/$EDITOR is not a command: fall through to the
   // next candidate (and ultimately `vi`) rather than spawning nothing.
+  const fallback = (deps.platform ?? process.platform) === 'win32' ? 'notepad.exe' : 'vi';
   const command =
-    [env.VISUAL, env.EDITOR, 'vi']
+    [env.VISUAL, env.EDITOR, fallback]
       .map((candidate) => (candidate ?? '').trim())
-      .find((candidate) => candidate.length > 0) ?? 'vi';
+      .find((candidate) => candidate.length > 0) ?? fallback;
   const [program, ...args] = command.split(/\s+/).filter((part) => part.length > 0);
 
   const dir = await mkdtemp(join(tmpdir(), 'jev-'));

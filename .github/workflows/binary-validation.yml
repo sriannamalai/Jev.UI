@@ -1,0 +1,47 @@
+name: Validate native release candidates
+
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - '.github/workflows/binary-*.yml'
+      - 'scripts/release/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'LICENSE'
+  pull_request:
+    paths:
+      - '.github/workflows/binary-*.yml'
+      - 'scripts/release/**'
+      - 'apps/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'LICENSE'
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Commit SHA or restricted Git ref to build
+        required: false
+        type: string
+      version:
+        description: Expected package version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    uses: ./.github/workflows/binary-build.yml
+    permissions:
+      contents: read
+    with:
+      source_ref: ${{ inputs.source_ref || github.sha }}
+      version: ${{ inputs.version || '' }}

@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { resolveApiKey } from '@jev-ui/core';
 import { startServer as defaultStartServer } from '@jev-ui/server';
 import type { RunningServer, StartOptions } from '@jev-ui/server';
@@ -34,7 +35,9 @@ export async function runServe(opts: ServeOptions = {}, io: ServeIo = {}): Promi
   const env = io.env ?? process.env;
   const signals = io.signals ?? process;
 
-  const webDir = fileURLToPath(new URL('./web', import.meta.url));
+  const webDir = env.JEV_UI_ASSET_DIR
+    ? join(env.JEV_UI_ASSET_DIR, 'web')
+    : fileURLToPath(new URL('./web', import.meta.url));
 
   const server = await startServerFn({
     ...(opts.port !== undefined ? { port: opts.port } : {}),
