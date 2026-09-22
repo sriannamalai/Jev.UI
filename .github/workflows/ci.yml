@@ -7,32 +7,41 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      COREPACK_ON_UNVERIFIED_DOWNLOAD: strict-error
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: 24
-          cache: pnpm
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+      - name: Set up pnpm 11.17.0
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          $env:COREPACK_HOME = Join-Path $env:RUNNER_TEMP 'corepack'
+          "COREPACK_HOME=$env:COREPACK_HOME" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $shimDirectory = Join-Path $env:RUNNER_TEMP 'corepack-shims'
+          New-Item -ItemType Directory -Force -Path $shimDirectory | Out-Null
+          corepack enable pnpm --install-directory $shimDirectory
+          corepack install
+          $actualVersion = (corepack pnpm --version).Trim()
+          if ($actualVersion -ne '11.17.0') {
+            throw "Expected pnpm 11.17.0, got $actualVersion"
+          }
+          $shimDirectory | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm -r test
-      - id: playwright-version
-        run: echo "version=$(pnpm --filter @jev-ui/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
-        id: playwright-cache
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+      - run: pnpm test:release
       - run: pnpm --filter @jev-ui/web exec playwright install --with-deps chromium
-        if: steps.playwright-cache.outputs.cache-hit != 'true'
-      - run: pnpm --filter @jev-ui/web exec playwright install-deps chromium
-        if: steps.playwright-cache.outputs.cache-hit == 'true'
       - run: pnpm --filter @jev-ui/web e2e
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: playwright-test-results
           path: apps/web/test-results
