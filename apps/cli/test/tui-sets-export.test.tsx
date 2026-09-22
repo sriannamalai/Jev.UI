@@ -14,6 +14,7 @@ import { displayWidth } from '../src/tui/bars.js';
 import { KEYMAP } from '../src/tui/keys.js';
 import { App } from '../src/tui/App.js';
 import type { TuiDeps } from '../src/tui/App.js';
+import { drainBufferedInput } from '../src/tui/flows.js';
 
 // Full-App integration tests for: open/save sets, export, editing
 // the whole request in $EDITOR, quit confirmation, and the grouped help
@@ -111,10 +112,12 @@ function renderApp(deps: TuiDeps, initial: Request) {
 async function makeDirty(stdin: { write(s: string): void }): Promise<void> {
   stdin.write('i');
   await tick();
+  stdin.write('\r'); // current string defaults to Text
+  await tick();
   await backspace(stdin, 30);
   stdin.write('changed');
   await tick();
-  stdin.write('\r');
+  stdin.write('\u0013');
   await tick();
 }
 
@@ -204,7 +207,7 @@ describe('o: open a set', () => {
     expect(frame).toMatch(/▸ \[noul] first/);
   });
 
-  it('asks to discard unsaved changes first; n keeps them, y proceeds', async () => {
+  it('asks to discard unsaved changes first; Enter defaults to No, y proceeds', async () => {
     const summaries: SetSummary[] = [{ name: 'triage', questionCount: 2, valid: true }];
     const load = vi.fn(async () => TRIAGE_SET);
     const deps = makeDeps({
@@ -213,19 +216,12 @@ describe('o: open a set', () => {
     });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
 
-    // Dirty the state.
-    stdin.write('i');
-    await tick();
-    await backspace(stdin, 30);
-    stdin.write('changed');
-    await tick();
-    stdin.write('\r');
-    await tick();
+    await makeDirty(stdin);
 
     stdin.write('o');
     await waitForText(lastFrame, 'Discard unsaved changes?');
 
-    stdin.write('n');
+    stdin.write('\r');
     await tick();
     expect(load).not.toHaveBeenCalled();
     expect(stripAnsi(lastFrame() ?? '')).toContain('changed');
@@ -445,7 +441,7 @@ describe('e: export', () => {
     expect(path).not.toContain('..');
   });
 
-  it('asks to overwrite when the file already exists; n writes nothing', async () => {
+  it('asks to overwrite when the file already exists; Enter defaults to No', async () => {
     const writeFile = vi.fn(async () => undefined);
     const deps = makeDeps({
       columns: 140,
@@ -458,7 +454,7 @@ describe('e: export', () => {
     stdin.write('p');
     await waitForText(lastFrame, 'Overwrite');
 
-    stdin.write('n');
+    stdin.write('\r');
     await tick();
     expect(writeFile).not.toHaveBeenCalled();
   });
@@ -503,6 +499,12 @@ describe('e: export', () => {
 });
 
 describe('E: edit the full request in $EDITOR', () => {
+  it('drains only input already queued while the editor owned the terminal', () => {
+    const read = vi.fn().mockReturnValueOnce(Buffer.from('q')).mockReturnValueOnce(null);
+    drainBufferedInput({ read });
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
   it('valid JSON replaces the request, visible in the Questions pane', async () => {
     const newRequestJson = JSON.stringify({
       state: 'hi',
@@ -556,7 +558,7 @@ describe('q: quit', () => {
     expect(exited).toHaveBeenCalled();
   });
 
-  it('asks for confirmation when dirty; n stays, y exits', async () => {
+  it('asks for confirmation when dirty; Enter defaults to No, y exits', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin, exited } = renderApp(deps, REQUEST);
     await makeDirty(stdin);
@@ -566,7 +568,7 @@ describe('q: quit', () => {
     expect(lastFrame() ?? '').toContain('Quit without saving?');
     expect(exited).not.toHaveBeenCalled();
 
-    stdin.write('n');
+    stdin.write('\r');
     await tick();
     expect(stripAnsi(lastFrame() ?? '')).toContain('changed');
     expect(lastFrame() ?? '').not.toContain('Quit without saving?');
@@ -685,17 +687,29 @@ describe('Ctrl+C', () => {
 });
 
 describe('? help overlay', () => {
-  it('contains every KEYMAP key and every line fits 80 columns', async () => {
+  it('reveals every complete KEYMAP entry by scrolling at 80 columns', async () => {
     const deps = makeDeps({ columns: 80 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
     stdin.write('?');
     await tick();
-    const frame = stripAnsi(lastFrame() ?? '');
-    for (const key of Object.keys(KEYMAP)) {
-      expect(frame).toContain(key);
+    const frames: string[] = [];
+    for (let step = 0; step < 40; step += 1) {
+      const frame = stripAnsi(lastFrame() ?? '');
+      frames.push(frame);
+      for (const line of frame.split('\n')) {
+        expect(displayWidth(line)).toBeLessThanOrEqual(80);
+      }
+      stdin.write('\u001B[B');
+      await tick();
     }
-    for (const line of frame.split('\n')) {
-      expect(displayWidth(line)).toBeLessThanOrEqual(80);
+    const helpText = frames
+      .flatMap((frame) => frame.split('\n'))
+      .filter((line) => line.startsWith('│'))
+      .map((line) => line.slice(1, -1))
+      .join('')
+      .replace(/\s/g, '');
+    for (const [key, description] of Object.entries(KEYMAP)) {
+      expect(helpText).toContain(`${key}—${description}`.replace(/\s/g, ''));
     }
   });
 });

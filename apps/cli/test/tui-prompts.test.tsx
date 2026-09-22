@@ -1,6 +1,6 @@
 import { render } from 'ink-testing-library';
 import { describe, expect, it, vi } from 'vitest';
-import { ChoicePrompt, LinesPrompt, TextPrompt } from '../src/tui/Prompts.js';
+import { ChoicePrompt, LinesPrompt, ListPrompt, TextPrompt } from '../src/tui/Prompts.js';
 import { displayWidth } from '../src/tui/bars.js';
 
 function stripAnsi(text: string): string {
@@ -18,6 +18,59 @@ async function escapeTick(): Promise<void> {
 }
 
 describe('TextPrompt', () => {
+  it('normalizes pasted newlines so they cannot break the prompt row', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(<TextPrompt label="X" onSubmit={onSubmit} onCancel={vi.fn()} />);
+    stdin.write('one\r\ntwo\nthree');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith('one two three');
+  });
+
+  it('renders bounded context, progress, and the requested submit label', async () => {
+    const { lastFrame } = render(
+      <TextPrompt
+        label="Instructions"
+        context="Question with a very long identifier"
+        progress={{ current: 1, total: 2 }}
+        submitLabel="Next"
+        width={20}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('Step 1/2');
+    expect(frame).toContain('Enter Next');
+    for (const line of frame.split('\n')) expect(displayWidth(line)).toBeLessThanOrEqual(20);
+  });
+
+  it('keeps the input row reachable when height is only one row', async () => {
+    const { lastFrame, stdin } = render(
+      <TextPrompt
+        label="Name"
+        context="Hidden context"
+        progress={{ current: 1, total: 2 }}
+        height={1}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    stdin.write('x');
+    await tick();
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame.split('\n')).toHaveLength(1);
+    expect(frame).toContain('Name: x');
+  });
+
+  it('renders nothing at height zero', () => {
+    const { lastFrame } = render(
+      <TextPrompt label="Name" height={0} onSubmit={vi.fn()} onCancel={vi.fn()} />,
+    );
+    expect(lastFrame() ?? '').toBe('');
+  });
+
   it('renders the label and typed characters', async () => {
     const { lastFrame, stdin } = render(
       <TextPrompt label="Instructions" onSubmit={vi.fn()} onCancel={vi.fn()} />,
@@ -167,9 +220,164 @@ describe('TextPrompt', () => {
     await tick();
     expect(stripAnsi(lastFrame() ?? '')).toContain('abc▏');
   });
+
+  it('includes the plain cursor marker in its display-width budget', () => {
+    const { lastFrame } = render(
+      <TextPrompt
+        label="Long label"
+        initial="abcdef"
+        width={4}
+        height={1}
+        color={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('▏');
+    expect(frame).not.toMatch(/\x1b/);
+    expect(displayWidth(frame)).toBeLessThanOrEqual(4);
+  });
+
+  it('does not emit heading or footer ANSI when color is disabled', () => {
+    const { lastFrame } = render(
+      <TextPrompt
+        label="Name"
+        initial="value"
+        context="Context"
+        progress={{ current: 1, total: 2 }}
+        color={false}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(lastFrame() ?? '').not.toMatch(/\x1b/);
+  });
 });
 
 describe('LinesPrompt', () => {
+  it('advances the cursor while typing sequential characters at the end of a line', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(
+      <LinesPrompt label="Body" initial={['a']} onSubmit={onSubmit} onCancel={vi.fn()} />,
+    );
+    stdin.write('b');
+    await tick();
+    stdin.write('c');
+    await tick();
+    stdin.write('\u0013');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(['abc']);
+  });
+
+  it('advances the cursor while typing sequential characters in the middle of a line', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(
+      <LinesPrompt label="Body" initial={['ad']} onSubmit={onSubmit} onCancel={vi.fn()} />,
+    );
+    stdin.write('\u001B[D');
+    await tick();
+    stdin.write('b');
+    await tick();
+    stdin.write('c');
+    await tick();
+    stdin.write('\u0013');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(['abcd']);
+  });
+
+  it('uses a one-column cursor fallback for a wide grapheme without changing the value', async () => {
+    const onSubmit = vi.fn();
+    const { lastFrame, stdin } = render(
+      <LinesPrompt
+        label="Body"
+        initial={['界']}
+        width={1}
+        height={1}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    );
+    stdin.write('\u001B[D');
+    await tick();
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(displayWidth(frame)).toBeLessThanOrEqual(1);
+    expect(frame).toContain('▏');
+    stdin.write('\u0013');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(['界']);
+  });
+
+  it('never exceeds heights zero through four and keeps the editable row visible', () => {
+    for (let height = 0; height <= 4; height += 1) {
+      const view = render(
+        <LinesPrompt
+          label="Body"
+          initial={['editable', 'second']}
+          context="Context"
+          progress={{ current: 1, total: 2 }}
+          height={height}
+          onSubmit={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      const frame = stripAnsi(view.lastFrame() ?? '');
+      expect(frame === '' ? 0 : frame.split('\n').length).toBeLessThanOrEqual(height);
+      if (height > 0) expect(frame).toContain('editable');
+      view.unmount();
+    }
+  });
+
+  it('shows a plain cursor marker without ANSI and stays within width', () => {
+    const { lastFrame } = render(
+      <LinesPrompt
+        label="L"
+        initial={['abc']}
+        width={3}
+        color={false}
+        height={1}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('▏');
+    expect(frame).not.toMatch(/\x1b/);
+    expect(displayWidth(frame)).toBeLessThanOrEqual(3);
+  });
+
+  it('normalizes pasted newlines and preserves trailing blank lines', async () => {
+    const onSubmit = vi.fn();
+    const { stdin } = render(
+      <LinesPrompt label="Body" initial={['head']} onSubmit={onSubmit} onCancel={vi.fn()} />,
+    );
+    stdin.write('one\r\ntwo\n\n');
+    await tick();
+    stdin.write('\u0013');
+    await tick();
+    expect(onSubmit).toHaveBeenCalledWith(['headone', 'two', '', '']);
+  });
+
+  it('bounds body rows by height and scrolls to keep the cursor visible', async () => {
+    const { lastFrame, stdin } = render(
+      <LinesPrompt
+        label="Body"
+        initial={['one', 'two', 'three', 'four', 'five', 'six']}
+        height={5}
+        onSubmit={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    for (let i = 0; i < 5; i += 1) {
+      stdin.write('\u001B[B');
+      await tick();
+    }
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame.split('\n')).toHaveLength(5);
+    expect(frame).toContain('six');
+    expect(frame).not.toContain('one');
+  });
+
   it('Enter creates a new line', async () => {
     const onSubmit = vi.fn();
     const { stdin } = render(
@@ -214,7 +422,7 @@ describe('LinesPrompt', () => {
     expect(onSubmit).toHaveBeenCalledWith(['a', 'bx']);
   });
 
-  it('Ctrl+S submits, dropping trailing empty lines', async () => {
+  it('Ctrl+S submits without dropping trailing empty lines', async () => {
     const onSubmit = vi.fn();
     const { stdin } = render(
       <LinesPrompt label="Options" initial={['a']} onSubmit={onSubmit} onCancel={vi.fn()} />,
@@ -223,7 +431,7 @@ describe('LinesPrompt', () => {
     await tick();
     stdin.write('\u0013');
     await tick();
-    expect(onSubmit).toHaveBeenCalledWith(['a']);
+    expect(onSubmit).toHaveBeenCalledWith(['a', '']);
   });
 
   it('Esc cancels without submitting', async () => {
@@ -310,6 +518,57 @@ describe('LinesPrompt', () => {
 });
 
 describe('ChoicePrompt', () => {
+  it('bounds tiny heights and renders a plain selected marker without ANSI', () => {
+    for (let height = 0; height <= 4; height += 1) {
+      const view = render(
+        <ChoicePrompt
+          label="Pick"
+          options={[
+            { key: 'a', label: 'Alpha' },
+            { key: 'b', label: 'Beta' },
+          ]}
+          context="Context"
+          progress={{ current: 1, total: 2 }}
+          width={12}
+          height={height}
+          color={false}
+          onPick={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      const frame = view.lastFrame() ?? '';
+      expect(frame === '' ? 0 : stripAnsi(frame).split('\n').length).toBeLessThanOrEqual(height);
+      expect(frame).not.toMatch(/\x1b/);
+      if (height > 0) expect(frame).toContain('▸');
+      view.unmount();
+    }
+  });
+
+  it('uses the safe default on Enter and supports arrow navigation', async () => {
+    const onPick = vi.fn();
+    const { stdin } = render(
+      <ChoicePrompt
+        label="Delete question?"
+        options={[
+          { key: 'y', label: 'Yes' },
+          { key: 'n', label: 'No' },
+        ]}
+        defaultKey="n"
+        onPick={onPick}
+        onCancel={vi.fn()}
+      />,
+    );
+    stdin.write('\r');
+    await tick();
+    expect(onPick).toHaveBeenLastCalledWith('n');
+
+    stdin.write('\u001B[A');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onPick).toHaveBeenLastCalledWith('y');
+  });
+
   it('picks an option by its key', async () => {
     const onPick = vi.fn();
     const { lastFrame, stdin } = render(
@@ -343,5 +602,115 @@ describe('ChoicePrompt', () => {
     stdin.write('\u001B');
     await escapeTick();
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
+describe('ListPrompt', () => {
+  it('does not emit inverse ANSI for the selected row when color is disabled', () => {
+    const previousForceColor = process.env.FORCE_COLOR;
+    process.env.FORCE_COLOR = '1';
+    try {
+      const { lastFrame, unmount } = render(
+        <ListPrompt
+          label="Pick"
+          items={[{ key: 'a', label: 'Alpha' }]}
+          color={false}
+          onPick={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      expect(lastFrame() ?? '').not.toMatch(/\x1b/);
+      unmount();
+    } finally {
+      if (previousForceColor === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = previousForceColor;
+    }
+  });
+
+  it('bounds tiny heights and renders a plain selected marker without ANSI', () => {
+    for (let height = 0; height <= 4; height += 1) {
+      const view = render(
+        <ListPrompt
+          label="Pick"
+          items={[
+            { key: 'a', label: 'Alpha' },
+            { key: 'b', label: 'Beta' },
+          ]}
+          context="Context"
+          progress={{ current: 1, total: 2 }}
+          width={12}
+          height={height}
+          color={false}
+          onPick={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      const frame = view.lastFrame() ?? '';
+      expect(frame === '' ? 0 : stripAnsi(frame).split('\n').length).toBeLessThanOrEqual(height);
+      expect(frame).not.toMatch(/\x1b/);
+      if (height > 0) expect(frame).toContain('▸');
+      view.unmount();
+    }
+  });
+
+  it('uses initialKey as the selected item for Enter', async () => {
+    const onPick = vi.fn();
+    const { stdin } = render(
+      <ListPrompt
+        label="Mode"
+        initialKey="json"
+        items={[
+          { key: 'text', label: 'Text' },
+          { key: 'json', label: 'JSON' },
+        ]}
+        onPick={onPick}
+        onCancel={vi.fn()}
+      />,
+    );
+    stdin.write('\r');
+    await tick();
+    expect(onPick).toHaveBeenCalledWith('json');
+  });
+
+  it('picks a single-key item through its shortcut', async () => {
+    const onPick = vi.fn();
+    const { stdin } = render(
+      <ListPrompt
+        label="Actions"
+        items={[
+          { key: 'r', label: 'Run' },
+          { key: 's', label: 'Save' },
+        ]}
+        onPick={onPick}
+        onCancel={vi.fn()}
+      />,
+    );
+    stdin.write('s');
+    await tick();
+    expect(onPick).toHaveBeenCalledWith('s');
+  });
+
+  it('shows a disabled reason, lets it be selected, and makes Enter a no-op', async () => {
+    const onPick = vi.fn();
+    const { lastFrame, stdin } = render(
+      <ListPrompt
+        label="Actions"
+        items={[
+          { key: 'run', label: 'Run', disabled: true, disabledReason: 'API key missing' },
+          { key: 'save', label: 'Save' },
+        ]}
+        onPick={onPick}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(lastFrame() ?? '').toContain('API key missing');
+    stdin.write('\r');
+    await tick();
+    expect(onPick).not.toHaveBeenCalled();
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(onPick).toHaveBeenCalledWith('save');
   });
 });

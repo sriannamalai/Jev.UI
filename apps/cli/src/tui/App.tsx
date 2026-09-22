@@ -3,8 +3,8 @@
 // confirmation. The per-type question edit steps live in
 // QuestionEditor.tsx; the sets/export/$EDITOR flows in flows.ts.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { ReactElement } from 'react';
-import { Box, Text, useApp, useInput } from 'ink';
+import type { ReactElement, ReactNode } from 'react';
+import { Box, Text, useApp, useInput, useStdin } from 'ink';
 import {
   DEFAULT_MODEL,
   JevError,
@@ -15,18 +15,28 @@ import {
   runBlockers,
   workbenchReducer,
 } from '@jev-ui/core';
-import type { Request, Text as JevText } from '@jev-ui/core';
+import type { QuestionType, Request } from '@jev-ui/core';
+import { Actions } from './Actions.js';
+import type { TuiAction } from './Actions.js';
 import { ResultsView } from './Results.js';
 import { StatusLine } from './StatusLine.js';
 import { Frame, QuestionsView, StateView } from './Panes.js';
-import { displayWidth, padEndDisplay } from './bars.js';
+import { displayWidth, padEndDisplay, truncate } from './bars.js';
+import { Viewport, wrapDisplayText } from './Viewport.js';
 import { KEYMAP, KEY_GROUPS, PANES, handleKey } from './keys.js';
 import type { Mode, Pane } from './keys.js';
 import { ChoicePrompt, LinesPrompt, ListPrompt, TextPrompt } from './Prompts.js';
 import type { PromptSpec } from './Prompts.js';
-import { editInEditorFlow, exportFlow, openSetFlow, saveFlow } from './flows.js';
+import {
+  drainBufferedInput,
+  editInEditorFlow,
+  exportFlow,
+  openSetFlow,
+  saveFlow,
+} from './flows.js';
 import type { FlowUi, TuiDeps } from './flows.js';
 import { useQuestionEditor } from './QuestionEditor.js';
+import { beginStateEdit } from './StateEditor.js';
 import { useTerminalSize } from './useTerminalSize.js';
 
 export type { TuiDeps } from './flows.js';
@@ -67,22 +77,41 @@ function groupLines(groups: { heading: string; keys: string[] }[]): string[] {
 const HELP_LEFT_GROUPS = KEY_GROUPS.slice(0, 3);
 const HELP_RIGHT_GROUPS = KEY_GROUPS.slice(3);
 
-function HelpOverlay() {
+function HelpOverlay(props: { height: number; width: number }) {
+  const { height, width } = props;
   const leftLines = groupLines(HELP_LEFT_GROUPS);
   const rightLines = groupLines(HELP_RIGHT_GROUPS);
-  const leftWidth = leftLines.reduce((max, line) => Math.max(max, displayWidth(line)), 0);
+  const naturalLeftWidth = leftLines.reduce((max, line) => Math.max(max, displayWidth(line)), 0);
+  const naturalRightWidth = rightLines.reduce((max, line) => Math.max(max, displayWidth(line)), 0);
+  const columnsFit = naturalLeftWidth + 2 + naturalRightWidth <= width;
   const rowCount = Math.max(leftLines.length, rightLines.length);
 
+  const lines = columnsFit
+    ? [
+        'Keys',
+        ...Array.from({ length: rowCount }, (_, index) => {
+          const left = leftLines[index] ?? '';
+          const right = rightLines[index] ?? '';
+          return right.length > 0 ? `${padEndDisplay(left, naturalLeftWidth)}  ${right}` : left;
+        }),
+      ]
+    : [
+        'Keys',
+        ...KEY_GROUPS.flatMap((group) =>
+          [group.heading, ...group.keys.map((key) => `  ${key}  —  ${KEYMAP[key] ?? ''}`)].flatMap(
+            (line) => wrapDisplayText(line, width),
+          ),
+        ),
+      ];
+
   return (
-    <Box flexDirection="column">
-      <Text>Keys</Text>
-      {Array.from({ length: rowCount }, (_, index) => {
-        const left = leftLines[index] ?? '';
-        const right = rightLines[index] ?? '';
-        const line = right.length > 0 ? `${padEndDisplay(left, leftWidth)}  ${right}` : left;
-        return <Text key={index}>{line}</Text>;
-      })}
-    </Box>
+    <Viewport
+      rows={lines.map((line, index) => ({ key: String(index), content: <Text>{line}</Text> }))}
+      width={width}
+      height={height}
+      active
+      contentKey="help"
+    />
   );
 }
 
@@ -90,11 +119,12 @@ function PromptView(props: {
   prompt: PromptSpec;
   color: boolean;
   width: number;
+  height: number;
   /** What Ctrl+C does inside any prompt that doesn't override it: cancel the
    * prompt and start the quit flow. */
   onCtrlC: () => void;
 }) {
-  const { prompt, color, width } = props;
+  const { prompt, color, width, height } = props;
   const onCtrlC = prompt.onCtrlC ?? props.onCtrlC;
   if (prompt.kind === 'text') {
     return (
@@ -106,6 +136,10 @@ function PromptView(props: {
         onCancel={prompt.onCancel}
         onCtrlC={onCtrlC}
         width={width}
+        height={height}
+        context={prompt.context}
+        progress={prompt.progress}
+        submitLabel={prompt.submitLabel}
         color={color}
       />
     );
@@ -121,6 +155,10 @@ function PromptView(props: {
         onCancel={prompt.onCancel}
         onCtrlC={onCtrlC}
         width={width}
+        height={height}
+        context={prompt.context}
+        progress={prompt.progress}
+        submitLabel={prompt.submitLabel}
         color={color}
       />
     );
@@ -134,6 +172,12 @@ function PromptView(props: {
         onCancel={prompt.onCancel}
         onCtrlC={onCtrlC}
         color={color}
+        width={width}
+        height={height}
+        context={prompt.context}
+        progress={prompt.progress}
+        initialKey={prompt.initialKey}
+        defaultKey={prompt.defaultKey}
       />
     );
   }
@@ -141,6 +185,12 @@ function PromptView(props: {
     <ChoicePrompt
       label={prompt.label}
       options={prompt.options}
+      defaultKey={prompt.defaultKey}
+      width={width}
+      height={height}
+      context={prompt.context}
+      progress={prompt.progress}
+      color={color}
       onPick={prompt.onPick}
       onCancel={prompt.onCancel}
       onCtrlC={onCtrlC}
@@ -155,10 +205,12 @@ function nowIso(): string {
 export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   const { deps, initial } = props;
   const [state, dispatch] = useReducer(workbenchReducer, initial, initialWorkbench);
-  const { columns } = useTerminalSize({ columns: deps.columns });
+  const { columns, rows } = useTerminalSize({ columns: deps.columns, rows: deps.rows });
   const { exit: appExit, suspendTerminal } = useApp();
+  const { stdin } = useStdin();
   const [focused, setFocused] = useState<Pane>('state');
   const [mode, setMode] = useState<Mode>('normal');
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [prompt, setPrompt] = useState<PromptSpec | undefined>(undefined);
   // Bumped on every openPrompt so sequential edit steps (which reuse the
   // same prompt `kind`, e.g. Instructions -> Yes means) force a remount
@@ -251,17 +303,34 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   function addQuestion(): void {
     openPrompt({
       kind: 'choice',
-      label: 'Add question — n noul / c choice / s score',
+      label: 'Add question',
       options: [
-        { key: 'n', label: 'Noul' },
+        { key: 'n', label: 'Yes / No' },
         { key: 'c', label: 'Choice' },
         { key: 's', label: 'Score' },
       ],
       onPick: (pickedKey) => {
-        const questionType = pickedKey === 'n' ? 'noul' : pickedKey === 'c' ? 'choice' : 'score';
-        closePrompt();
-        dispatch({ type: 'addQuestion', questionType });
+        const questionType: QuestionType =
+          pickedKey === 'n' ? 'noul' : pickedKey === 'c' ? 'choice' : 'score';
+        const action = { type: 'addQuestion' as const, questionType };
+        const next = workbenchReducer(state, action);
+        const id = next.selectedId;
         setFocused('questions');
+        if (id === undefined) {
+          closePrompt();
+          return;
+        }
+        const question = next.request.questions[id];
+        if (question === undefined) {
+          closePrompt();
+          return;
+        }
+        editQuestion(id, question, {
+          onComplete: (completed) => {
+            dispatch(action);
+            dispatch({ type: 'updateQuestion', id, question: completed });
+          },
+        });
       },
       onCancel: closePrompt,
     });
@@ -273,7 +342,21 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       setNotice('A request needs at least one question');
       return;
     }
-    dispatch({ type: 'deleteQuestion', id: state.selectedId });
+    const id = state.selectedId;
+    openPrompt({
+      kind: 'choice',
+      label: `Delete "${id}"?`,
+      options: [
+        { key: 'n', label: 'No' },
+        { key: 'y', label: 'Yes' },
+      ],
+      defaultKey: 'n',
+      onPick: (key) => {
+        closePrompt();
+        if (key === 'y') dispatch({ type: 'deleteQuestion', id });
+      },
+      onCancel: closePrompt,
+    });
   }
 
   function duplicateQuestion(): void {
@@ -312,28 +395,7 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   }
 
   function editState(): void {
-    const value = state.request.state;
-    if (typeof value !== 'string' || value.includes('\n')) {
-      setNotice('State is multi-line or structured — press E to edit it in your editor');
-      return;
-    }
-    openPrompt({
-      kind: 'text',
-      label: 'State',
-      initial: value,
-      onSubmit: (text) => {
-        closePrompt();
-        let next: JevText = text;
-        try {
-          const parsed: unknown = JSON.parse(text);
-          if (parsed !== null && typeof parsed === 'object') next = parsed as JevText;
-        } catch {
-          // Not JSON — keep as a plain string.
-        }
-        dispatch({ type: 'setState', state: next });
-      },
-      onCancel: closePrompt,
-    });
+    beginStateEdit({ openPrompt, closePrompt, dispatch, setNotice }, state.request.state);
   }
 
   function editModel(): void {
@@ -390,7 +452,9 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
   }
 
   function editInEditor(): void {
-    runFlow((ui) => editInEditorFlow(deps, state, ui, suspendTerminal));
+    runFlow((ui) =>
+      editInEditorFlow(deps, state, ui, suspendTerminal, () => drainBufferedInput(stdin)),
+    );
   }
 
   function quitFlow(): void {
@@ -403,9 +467,10 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       kind: 'choice',
       label: 'Quit without saving?',
       options: [
-        { key: 'y', label: 'Yes' },
         { key: 'n', label: 'No' },
+        { key: 'y', label: 'Yes' },
       ],
+      defaultKey: 'n',
       onPick: (key) => {
         if (key === 'y') {
           appExit();
@@ -455,15 +520,17 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
         save,
         exportFlow: exportRequest,
         editInEditor,
+        openActions: () => setActionsOpen(true),
       });
     },
-    { isActive: mode !== 'prompt' },
+    { isActive: mode !== 'prompt' && !actionsOpen },
   );
 
   const wide = columns >= WIDE_MIN_COLUMNS;
   const stateWidth = wide ? Math.floor(columns * STATE_FRACTION) : columns;
   const questionsWidth = wide ? Math.floor(columns * QUESTIONS_FRACTION) : columns;
   const resultsWidth = wide ? columns - stateWidth - questionsWidth : columns;
+  const bodyHeight = Math.max(0, rows - 3);
 
   const isError = state.error !== undefined;
   const errorLine = isError
@@ -472,27 +539,210 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
       }`
     : notice;
 
+  const runDisabledReason = !deps.keyConfigured
+    ? 'TYPESAFE_API_KEY is not set'
+    : state.running
+      ? 'a run is already in progress'
+      : runBlockers(state.request)[0]?.message;
+
+  const action = (
+    id: string,
+    label: string,
+    shortcut: string,
+    run: () => void,
+    disabledReason?: string,
+  ): TuiAction => ({
+    id,
+    label,
+    shortcut,
+    disabledReason,
+    run: () => {
+      setActionsOpen(false);
+      run();
+    },
+  });
+
+  const questionReason = state.selectedId === undefined ? 'no question is selected' : undefined;
+  const ids = questionIds(state.request);
+  const selectedIndex = state.selectedId === undefined ? -1 : ids.indexOf(state.selectedId);
+  const deleteReason = questionReason ?? (ids.length <= 1 ? 'only question' : undefined);
+  const moveUpReason = questionReason ?? (selectedIndex <= 0 ? 'already first' : undefined);
+  const moveDownReason =
+    questionReason ??
+    (selectedIndex < 0 || selectedIndex === ids.length - 1 ? 'already last' : undefined);
+  const actions: TuiAction[] = [
+    action('run', 'Run', 'r', runRequested, runDisabledReason),
+    action('state', 'Edit state', 'Enter on State', editState),
+    action(
+      'question',
+      'Edit selected question',
+      'Enter on Questions',
+      () => {
+        setFocused('questions');
+        editSelected();
+      },
+      questionReason,
+    ),
+    action('add', 'Add question', 'a on Questions', () => {
+      setFocused('questions');
+      addQuestion();
+    }),
+    action(
+      'delete',
+      'Delete selected question',
+      'd on Questions',
+      () => {
+        setFocused('questions');
+        deleteQuestion();
+      },
+      deleteReason,
+    ),
+    action(
+      'duplicate',
+      'Duplicate selected question',
+      'D on Questions',
+      () => {
+        setFocused('questions');
+        duplicateQuestion();
+      },
+      questionReason,
+    ),
+    action(
+      'move-up',
+      'Move selected question up',
+      'K on Questions',
+      () => {
+        setFocused('questions');
+        moveQuestion(-1);
+      },
+      moveUpReason,
+    ),
+    action(
+      'move-down',
+      'Move selected question down',
+      'J on Questions',
+      () => {
+        setFocused('questions');
+        moveQuestion(1);
+      },
+      moveDownReason,
+    ),
+    action(
+      'rename',
+      'Rename selected question',
+      'n on Questions',
+      () => {
+        setFocused('questions');
+        renameSelected();
+      },
+      questionReason,
+    ),
+    action('model', 'Set model', 'm', editModel),
+    action('open', 'Open set', 'o', openSet),
+    action('save', 'Save', 's', () => save(false)),
+    action('save-as', 'Save as', 'S', () => save(true)),
+    action('export', 'Export', 'e', exportRequest),
+    action('editor', 'Edit request JSON', 'E', editInEditor),
+    action('help', 'Help', '?', () => setMode('help')),
+    action('quit', 'Quit', 'q', quitFlow),
+  ];
+
+  const header = truncate(
+    `Jev.UI · Set: ${state.setName ?? 'Untitled'} · Model: ${state.request.model ?? DEFAULT_MODEL} · ${
+      state.dirty ? 'Modified' : 'Saved'
+    }`,
+    Math.max(1, columns),
+  );
+
+  const compactBody = bodyHeight < 3;
+  const narrowFrameHeight = Math.max(3, bodyHeight - 1);
+  const wideContentHeight = Math.max(0, bodyHeight - 3);
+  const narrowContentHeight = Math.max(0, narrowFrameHeight - 3);
+  const modalContentHeight = bodyHeight >= 4 ? bodyHeight - 3 : Math.max(1, bodyHeight);
+
+  const renderModal = (title: string, content: ReactNode): ReactNode =>
+    bodyHeight >= 4 ? (
+      <Frame title={title} focused width={columns} height={bodyHeight} color={color}>
+        {content}
+      </Frame>
+    ) : (
+      <Box height={bodyHeight} overflow="hidden">
+        {content}
+      </Box>
+    );
+
+  const contextLine = actionsOpen
+    ? 'Actions · ↑↓ move · Enter run · Esc close · Ctrl+C quit'
+    : mode === 'help'
+      ? 'Help · ↑↓/Pg scroll · Esc close · q Quit'
+      : mode === 'prompt'
+        ? 'Prompt · Esc cancel · Ctrl+C quit'
+        : focused === 'state'
+          ? 'Ctrl+P Actions · State · Enter edit · ↑↓/Pg scroll · ? Help · q Quit'
+          : focused === 'questions'
+            ? 'Ctrl+P Actions · Questions · Enter edit · ↑↓ select · Pg scroll · a add'
+            : 'Ctrl+P Actions · Results · ↑↓/Pg scroll · ? Help · q Quit';
+
   return (
-    <Box flexDirection="column" width={columns}>
-      {mode === 'help' ? (
-        <HelpOverlay />
+    <Box flexDirection="column" width={columns} height={rows} overflow="hidden">
+      <Text>{header}</Text>
+      {actionsOpen ? (
+        renderModal(
+          'Actions',
+          <Actions
+            actions={actions}
+            height={modalContentHeight}
+            width={Math.max(1, columns - BORDER_WIDTH)}
+            color={color}
+            onCancel={() => setActionsOpen(false)}
+            onCtrlC={() => {
+              setActionsOpen(false);
+              quitFlow();
+            }}
+          />,
+        )
+      ) : mode === 'help' ? (
+        renderModal(
+          'Help',
+          <HelpOverlay height={modalContentHeight} width={Math.max(1, columns - BORDER_WIDTH)} />,
+        )
       ) : mode === 'prompt' && prompt ? (
-        <PromptView
-          key={promptSeq}
-          prompt={prompt}
-          color={color}
-          width={columns}
-          onCtrlC={promptCtrlC}
-        />
+        renderModal(
+          'Prompt',
+          <PromptView
+            key={promptSeq}
+            prompt={prompt}
+            color={color}
+            width={Math.max(1, columns - BORDER_WIDTH)}
+            height={modalContentHeight}
+            onCtrlC={promptCtrlC}
+          />,
+        )
+      ) : compactBody ? (
+        bodyHeight > 0 ? (
+          <Text>{truncate('Terminal too small', columns)}</Text>
+        ) : null
       ) : wide ? (
-        <Box flexDirection="row">
-          <Frame title="STATE" focused={focused === 'state'} width={stateWidth} color={color}>
-            <StateView request={state.request} width={stateWidth - BORDER_WIDTH} />
+        <Box flexDirection="row" height={bodyHeight} overflow="hidden">
+          <Frame
+            title="STATE"
+            focused={focused === 'state'}
+            width={stateWidth}
+            height={bodyHeight}
+            color={color}
+          >
+            <StateView
+              request={state.request}
+              width={stateWidth - BORDER_WIDTH}
+              height={wideContentHeight}
+              active={focused === 'state'}
+            />
           </Frame>
           <Frame
             title="QUESTIONS"
             focused={focused === 'questions'}
             width={questionsWidth}
+            height={bodyHeight}
             color={color}
           >
             <QuestionsView
@@ -500,9 +750,18 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
               selectedId={state.selectedId}
               width={questionsWidth - BORDER_WIDTH}
               color={color}
+              height={wideContentHeight}
+              active={focused === 'questions'}
+              onSelect={(id) => dispatch({ type: 'select', id })}
             />
           </Frame>
-          <Frame title="RESULTS" focused={focused === 'results'} width={resultsWidth} color={color}>
+          <Frame
+            title="RESULTS"
+            focused={focused === 'results'}
+            width={resultsWidth}
+            height={bodyHeight}
+            color={color}
+          >
             <ResultsView
               request={state.request}
               result={state.result}
@@ -511,29 +770,45 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
               selectedId={state.selectedId}
               width={resultsWidth - BORDER_WIDTH}
               color={color}
+              height={wideContentHeight}
+              active={focused === 'results'}
             />
           </Frame>
         </Box>
       ) : (
-        <Box flexDirection="column">
+        <Box flexDirection="column" height={bodyHeight} overflow="hidden">
           <TabStrip focused={focused} />
           {focused === 'state' && (
-            <Frame title="STATE" focused width={columns} color={color}>
-              <StateView request={state.request} width={columns - BORDER_WIDTH} />
+            <Frame title="STATE" focused width={columns} height={narrowFrameHeight} color={color}>
+              <StateView
+                request={state.request}
+                width={columns - BORDER_WIDTH}
+                height={narrowContentHeight}
+                active
+              />
             </Frame>
           )}
           {focused === 'questions' && (
-            <Frame title="QUESTIONS" focused width={columns} color={color}>
+            <Frame
+              title="QUESTIONS"
+              focused
+              width={columns}
+              height={narrowFrameHeight}
+              color={color}
+            >
               <QuestionsView
                 request={state.request}
                 selectedId={state.selectedId}
                 width={columns - BORDER_WIDTH}
                 color={color}
+                height={narrowContentHeight}
+                active
+                onSelect={(id) => dispatch({ type: 'select', id })}
               />
             </Frame>
           )}
           {focused === 'results' && (
-            <Frame title="RESULTS" focused width={columns} color={color}>
+            <Frame title="RESULTS" focused width={columns} height={narrowFrameHeight} color={color}>
               <ResultsView
                 request={state.request}
                 result={state.result}
@@ -542,16 +817,22 @@ export function App(props: { deps: TuiDeps; initial?: Request }): ReactElement {
                 selectedId={state.selectedId}
                 width={columns - BORDER_WIDTH}
                 color={color}
+                height={narrowContentHeight}
+                active
               />
             </Frame>
           )}
         </Box>
       )}
-      {errorLine && <Text color={isError && color ? 'red' : undefined}>{errorLine}</Text>}
-      <StatusLine result={state.result} keyConfigured={deps.keyConfigured} />
-      <Text dimColor={color}>
-        Tab panes · ↑↓ select · r run · a add · o open · s save · e export · ? help · q quit
-      </Text>
+      <StatusLine
+        result={state.result}
+        keyConfigured={deps.keyConfigured}
+        message={errorLine}
+        isError={isError}
+        width={columns}
+        color={color}
+      />
+      <Text dimColor={color}>{truncate(contextLine, columns)}</Text>
     </Box>
   );
 }

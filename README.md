@@ -26,9 +26,9 @@ workbench for composing those requests and reading the results — not a chat cl
 ## Install and build from source
 
 ```sh
-git clone <this repository>
+git clone https://github.com/sriannamalai/Jev.UI.git
 cd Jev.UI
-pnpm install
+pnpm install --frozen-lockfile
 pnpm build
 ```
 
@@ -46,6 +46,10 @@ alias jev="node $(pwd)/apps/cli/dist/bin.js"
 
 The rest of this README uses `jev` in its examples — that always means this alias (or, if you
 skipped it, the explicit `node apps/cli/dist/bin.js` form).
+
+Version **0.2.0** adds the full-screen terminal workbench. See [CHANGELOG.md](CHANGELOG.md) for
+release changes and [GitHub Releases](https://github.com/sriannamalai/Jev.UI/releases) for tagged
+source archives. Releases currently use the source-build workflow above.
 
 ## Quick start
 
@@ -107,16 +111,23 @@ save as).
 
 ## The terminal UI
 
-At 120 columns or wider the TUI shows three panes side by side — state, questions, results — with
-tabs to switch between them below that width.
+The TUI fills the terminal and restores your shell when you exit. The header shows the current
+set, model, and unsaved changes; status and relevant shortcuts stay at the bottom. At 120 columns
+or wider, State, Questions, and Results appear side by side; smaller terminals use tabs. Content
+scrolls inside each pane and adapts when you resize the terminal.
+
+Press **Ctrl+P** to open **Actions** and choose a command with the arrow keys and Enter. Disabled
+actions explain what is missing. Esc returns to the workbench.
 
 **Navigate**
 
-| Key         | Action         |
-| ----------- | -------------- |
-| Tab         | cycle panes    |
-| 1 / 2 / 3   | jump to a pane |
-| ↑ / ↓ (k/j) | move selection |
+| Key                 | Action                                                                      |
+| ------------------- | --------------------------------------------------------------------------- |
+| Tab / Shift+Tab     | next / previous pane                                                        |
+| 1 / 2 / 3           | jump to State / Questions / Results                                         |
+| ↑ / ↓ (k/j)         | select a question, or scroll State / Results                                |
+| Page Up / Page Down | scroll a page; in Questions, page through details and questions             |
+| Home / End          | jump to the beginning / end; in Questions, select the first / last question |
 
 **Run**
 
@@ -126,16 +137,16 @@ tabs to switch between them below that width.
 
 **Edit**
 
-| Key   | Action                                             |
-| ----- | -------------------------------------------------- |
-| a     | add question                                       |
-| d     | delete question                                    |
-| D     | duplicate question                                 |
-| J / K | move question down / up                            |
-| Enter | edit selected question (when Questions is focused) |
-| n     | rename selected question                           |
-| i     | edit state (single line)                           |
-| m     | set model                                          |
+| Key   | Action                                                     |
+| ----- | ---------------------------------------------------------- |
+| a     | add and edit a question (Questions pane)                   |
+| d     | confirm deletion of the selected question (Questions pane) |
+| D     | duplicate the selected question (Questions pane)           |
+| J / K | move question down / up (Questions pane)                   |
+| Enter | edit State or the selected question in the focused pane    |
+| n     | rename the selected question (Questions pane)              |
+| i     | edit multiline state as Text or JSON                       |
+| m     | set model                                                  |
 
 **Sets & export**
 
@@ -151,13 +162,42 @@ tabs to switch between them below that width.
 
 | Key    | Action                                                                                 |
 | ------ | -------------------------------------------------------------------------------------- |
-| ?      | show help (Esc closes)                                                                 |
+| Ctrl+P | open the Actions menu                                                                  |
+| ?      | show scrollable help (Esc closes)                                                      |
 | Esc    | close help / cancel a prompt                                                           |
 | q      | quit (confirms first if there are unsaved changes)                                     |
 | Ctrl+C | quit from anywhere, including mid-prompt (confirms first if there are unsaved changes) |
 
-A structured (object/array) `instructions` or `criteria` value shows as a
-`<structured #N — edit in JSON>` placeholder in these line editors; edit it with `E`.
+State editing explicitly selects **Text** or **JSON**, defaulting to the current value type. Text
+stays text even when it looks like JSON; JSON mode validates an object or array before saving.
+Use Enter for a new line and Ctrl+S to save multiline fields.
+
+Question editing shows step progress and keeps a draft until the final Save. Enter advances a
+single-line field; Ctrl+S advances a multiline field. Esc discards the entire draft, including
+an unfinished new question. Structured instructions and yes/no criteria open in a JSON editor.
+Structured choice descriptions and score levels retain their identity through the
+`<structured #N — edit in JSON>` placeholders; use `E` to edit those values in the full request.
+
+**Question names and natural text:** `n` changes a question's identifier, such as
+`customer_intent`. Identifiers start with a letter or `_` and contain letters, digits, `_`, or
+`-`. To write the actual question — for example, “What does the customer need help with?” —
+select it, press Enter, and edit **Instructions**. Spaces and punctuation belong there.
+For a choice question, continue to **Options (key: description)** and edit one option per line:
+
+```text
+Billing help: Questions about payments or subscriptions
+Technical support: Bugs, errors, or setup problems
+```
+
+Choice names may contain spaces. Quote a name as a JSON string if it contains a colon, such as
+`"Billing: refunds": Refund requests`. Ctrl+S saves the options step. Existing unusual strings
+may appear with an `=json ` prefix so their whitespace, newlines, and literal placeholder text
+survive editing; keep that encoding when preserving the exact value.
+
+Confirmations support arrows and Enter as well as the displayed letter keys. Delete and dirty
+quit confirmations default to keeping your work. When a question has more details than fit in a
+page, Page Up/Down scrolls through them; pressing Home/End again on the first/last question
+reaches the start/end of its details.
 
 Set `NO_COLOR` to disable colored output in both the TUI and `jev ask`'s formatted results.
 

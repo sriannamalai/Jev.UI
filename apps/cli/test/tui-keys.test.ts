@@ -52,6 +52,7 @@ function makeCtx(overrides: Partial<KeyContext> = {}): KeyContext {
     save: vi.fn(),
     exportFlow: vi.fn(),
     editInEditor: vi.fn(),
+    openActions: vi.fn(),
     ...overrides,
   };
 }
@@ -178,10 +179,23 @@ describe('handleKey', () => {
     expect(ctx.editSelected).toHaveBeenCalledOnce();
   });
 
-  it('ignores Enter when a different pane is focused', () => {
+  it('edits state on Enter when State is focused', () => {
     const ctx = makeCtx({ focused: 'state' });
     handleKey('', key({ return: true }), ctx);
+    expect(ctx.editState).toHaveBeenCalledOnce();
+  });
+
+  it('ignores Enter when Results is focused', () => {
+    const ctx = makeCtx({ focused: 'results' });
+    handleKey('', key({ return: true }), ctx);
     expect(ctx.editSelected).not.toHaveBeenCalled();
+    expect(ctx.editState).not.toHaveBeenCalled();
+  });
+
+  it('opens Actions on Ctrl+P in normal mode', () => {
+    const ctx = makeCtx();
+    handleKey('p', key({ ctrl: true }), ctx);
+    expect(ctx.openActions).toHaveBeenCalledOnce();
   });
 
   const commands: [string, keyof KeyContext][] = [
@@ -193,15 +207,25 @@ describe('handleKey', () => {
     ['m', 'editModel'],
   ];
   for (const [input, method] of commands) {
-    it(`calls ctx.${method} on ${input}`, () => {
-      const ctx = makeCtx();
+    it(`calls ctx.${method} on ${input} when Questions is focused`, () => {
+      const ctx = makeCtx({ focused: 'questions' });
       handleKey(input, key(), ctx);
       expect(ctx[method]).toHaveBeenCalledOnce();
     });
   }
 
+  it('limits question mutation shortcuts to the Questions pane', () => {
+    const ctx = makeCtx({ focused: 'state' });
+    for (const input of ['a', 'd', 'D', 'J', 'K', 'n']) handleKey(input, key(), ctx);
+    expect(ctx.addQuestion).not.toHaveBeenCalled();
+    expect(ctx.deleteQuestion).not.toHaveBeenCalled();
+    expect(ctx.duplicateQuestion).not.toHaveBeenCalled();
+    expect(ctx.moveQuestion).not.toHaveBeenCalled();
+    expect(ctx.renameSelected).not.toHaveBeenCalled();
+  });
+
   it('calls ctx.moveQuestion(1) on J and ctx.moveQuestion(-1) on K', () => {
-    const ctx = makeCtx();
+    const ctx = makeCtx({ focused: 'questions' });
     handleKey('J', key(), ctx);
     expect(ctx.moveQuestion).toHaveBeenCalledWith(1);
     handleKey('K', key(), ctx);

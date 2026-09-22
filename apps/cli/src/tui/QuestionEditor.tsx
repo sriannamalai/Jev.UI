@@ -1,32 +1,32 @@
-// The Enter-to-edit step sequencer: a question is edited as a
-// short series of prompts (Instructions, then the type's own fields), each
-// committed as it is submitted so the next step builds on the latest draft.
-// Kept out of App.tsx, which only owns the frame, focus and key routing.
-import type { NoulQuestion, Question, workbenchReducer } from '@jev-ui/core';
+// Atomic question editing: each prompt updates a private draft and the
+// workbench receives one updateQuestion action only after the last step.
+import type { NoulQuestion, Question, Text, workbenchReducer } from '@jev-ui/core';
 import type { PromptSpec } from './Prompts.js';
 import {
   choiceToLines,
   editableText,
   linesToChoice,
   linesToScore,
+  parseStructuredLines,
   scoreToLines,
+  structuredToLines,
 } from './questionEdit.js';
 
 type WorkbenchAction = Parameters<typeof workbenchReducer>[1];
-
-type NoulEditStep = 'instructions' | 'yes' | 'no';
-type ChoiceEditStep = 'instructions' | 'options';
-type ScoreEditStep = 'instructions' | 'levels';
-type EditStep = NoulEditStep | ChoiceEditStep | ScoreEditStep;
+type EditStep = 'instructions' | 'yes' | 'no' | 'options' | 'levels';
 
 export interface QuestionEditorUi {
-  /** Opening a prompt also remounts it (App bumps its prompt key), which is
-   * what lets two steps of the same `kind` — Instructions then Yes means —
-   * start from their own text and cursor instead of the previous step's. */
   openPrompt(spec: PromptSpec): void;
   closePrompt(): void;
   setNotice(text: string | undefined): void;
   dispatch(action: WorkbenchAction): void;
+}
+
+export interface QuestionEditOptions {
+  /** Called after the private draft is cancelled without a workbench mutation. */
+  onCancel?: () => void;
+  /** Lets add-question defer all workbench mutations until the draft is complete. */
+  onComplete?: (question: Question) => void;
 }
 
 export function buildEditSteps(question: Question): EditStep[] {
@@ -40,117 +40,172 @@ export function buildEditSteps(question: Question): EditStep[] {
   }
 }
 
+function valuePrompt(
+  value: Text | undefined,
+  label: string,
+  presentation: Pick<PromptSpec, 'context' | 'progress' | 'submitLabel'>,
+  onSubmit: (value: Text) => void,
+  onCancel: () => void,
+): PromptSpec {
+  const editable = editableText(value);
+  if (editable.editable) {
+    if (editable.text.includes('\n')) {
+      return {
+        kind: 'lines',
+        label,
+        initial: editable.text.split('\n'),
+        ...presentation,
+        onSubmit: (lines) => onSubmit(lines.join('\n')),
+        onCancel,
+      };
+    }
+    return {
+      kind: 'text',
+      label,
+      initial: editable.text,
+      ...presentation,
+      onSubmit,
+      onCancel,
+    };
+  }
+  if (value === undefined || typeof value === 'string') {
+    throw new Error('Structured editor requires an object or array');
+  }
+  return {
+    kind: 'lines',
+    label: `${label} (JSON)`,
+    initial: structuredToLines(value),
+    ...presentation,
+    validate: (lines) => {
+      const result = parseStructuredLines(lines);
+      return result.ok ? undefined : result.message;
+    },
+    onSubmit: (lines) => {
+      const result = parseStructuredLines(lines);
+      if (result.ok) onSubmit(result.value);
+    },
+    onCancel,
+  };
+}
+
 function runEditStep(
   ui: QuestionEditorUi,
   id: string,
   draft: Question,
   steps: EditStep[],
   index: number,
+  options: QuestionEditOptions,
 ): void {
+  const cancel = () => {
+    ui.closePrompt();
+    options.onCancel?.();
+  };
   if (index >= steps.length) {
     ui.closePrompt();
+    if (options.onComplete) options.onComplete(draft);
+    else ui.dispatch({ type: 'updateQuestion', id, question: draft });
     return;
   }
-  const step = steps[index]!;
 
-  const commit = (updated: Question) => {
-    ui.dispatch({ type: 'updateQuestion', id, question: updated });
-    runEditStep(ui, id, updated, steps, index + 1);
+  const step = steps[index]!;
+  const presentation = {
+    context: `Question: ${id}`,
+    progress: { current: index + 1, total: steps.length },
+    submitLabel: index === steps.length - 1 ? 'Save' : 'Next',
+  } as const;
+  const advance = (updated: Question) => {
+    runEditStep(ui, id, updated, steps, index + 1, options);
   };
 
   if (step === 'instructions') {
-    const et = editableText(draft.instructions);
-    if (!et.editable) {
-      ui.setNotice('Instructions are structured — press E to edit as JSON');
-      runEditStep(ui, id, draft, steps, index + 1);
-      return;
-    }
-    ui.openPrompt({
-      kind: 'text',
-      label: 'Instructions',
-      initial: et.text,
-      onSubmit: (text) => commit({ ...draft, instructions: text }),
-      onCancel: ui.closePrompt,
-    });
+    ui.openPrompt(
+      valuePrompt(
+        draft.instructions,
+        'Instructions',
+        presentation,
+        (instructions) => advance({ ...draft, instructions }),
+        cancel,
+      ),
+    );
     return;
   }
 
   if (step === 'yes' || step === 'no') {
-    if (draft.type !== 'noul') {
-      runEditStep(ui, id, draft, steps, index + 1);
-      return;
-    }
+    if (draft.type !== 'noul') return;
     const criteriaKey = step === 'yes' ? ('true' as const) : ('false' as const);
     const current = draft.criteria?.[criteriaKey];
-    const et = editableText(current);
-    ui.openPrompt({
-      kind: 'text',
-      label: step === 'yes' ? 'Yes means' : 'No means',
-      initial: et.editable ? et.text : '',
-      onSubmit: (text) => {
-        const trimmed = text.trim();
-        const criteria = { ...(draft.criteria ?? {}) };
-        if (trimmed.length === 0) delete criteria[criteriaKey];
-        else criteria[criteriaKey] = text;
-        const updated: NoulQuestion =
-          Object.keys(criteria).length > 0
-            ? { type: 'noul', instructions: draft.instructions, criteria }
-            : { type: 'noul', instructions: draft.instructions };
-        commit(updated);
-      },
-      onCancel: ui.closePrompt,
-    });
+    ui.openPrompt(
+      valuePrompt(
+        current,
+        step === 'yes' ? 'Yes means' : 'No means',
+        presentation,
+        (value) => {
+          const criteria = { ...(draft.criteria ?? {}) };
+          if (typeof value === 'string' && value.trim().length === 0) delete criteria[criteriaKey];
+          else criteria[criteriaKey] = value;
+          const updated: NoulQuestion =
+            Object.keys(criteria).length > 0
+              ? { type: 'noul', instructions: draft.instructions, criteria }
+              : { type: 'noul', instructions: draft.instructions };
+          advance(updated);
+        },
+        cancel,
+      ),
+    );
     return;
   }
 
   if (step === 'options') {
-    if (draft.type !== 'choice') {
-      runEditStep(ui, id, draft, steps, index + 1);
-      return;
-    }
+    if (draft.type !== 'choice') return;
     ui.openPrompt({
       kind: 'lines',
       label: 'Options (key: description)',
       initial: choiceToLines(draft),
+      ...presentation,
       validate: (lines) => {
         const result = linesToChoice(lines, draft);
         return result.ok ? undefined : result.message;
       },
       onSubmit: (lines) => {
         const result = linesToChoice(lines, draft);
-        if (!result.ok) return;
-        commit({ ...draft, criteria: result.criteria });
+        if (result.ok) advance({ ...draft, criteria: result.criteria });
       },
-      onCancel: ui.closePrompt,
+      onCancel: cancel,
     });
     return;
   }
 
   if (step === 'levels') {
-    if (draft.type !== 'score') {
-      runEditStep(ui, id, draft, steps, index + 1);
-      return;
-    }
+    if (draft.type !== 'score') return;
     ui.openPrompt({
       kind: 'lines',
       label: 'Levels',
       initial: scoreToLines(draft),
+      ...presentation,
       validate: (lines) => {
         const result = linesToScore(lines, draft);
         return result.ok ? undefined : result.message;
       },
       onSubmit: (lines) => {
         const result = linesToScore(lines, draft);
-        if (!result.ok) return;
-        commit({ ...draft, criteria: result.criteria });
+        if (result.ok) advance({ ...draft, criteria: result.criteria });
       },
-      onCancel: ui.closePrompt,
+      onCancel: cancel,
     });
   }
 }
 
-/** Returns "edit this question": it walks the type's step list, committing
- * each step as it is submitted. */
-export function useQuestionEditor(ui: QuestionEditorUi): (id: string, question: Question) => void {
-  return (id, question) => runEditStep(ui, id, question, buildEditSteps(question), 0);
+export function beginQuestionEdit(
+  ui: QuestionEditorUi,
+  id: string,
+  question: Question,
+  options: QuestionEditOptions = {},
+): void {
+  runEditStep(ui, id, question, buildEditSteps(question), 0, options);
+}
+
+export function useQuestionEditor(
+  ui: QuestionEditorUi,
+): (id: string, question: Question, options?: QuestionEditOptions) => void {
+  return (id, question, options) => beginQuestionEdit(ui, id, question, options);
 }

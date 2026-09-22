@@ -32,6 +32,7 @@ export interface TuiDeps {
   fileExists(path: string): Promise<boolean>;
   cwd(): string;
   columns?: number;
+  rows?: number;
   env?: NodeJS.ProcessEnv;
 }
 
@@ -119,9 +120,10 @@ export function openSetFlow(deps: TuiDeps, state: Workbench, ui: FlowUi): void {
       kind: 'choice',
       label: 'Discard unsaved changes?',
       options: [
-        { key: 'y', label: 'Yes' },
         { key: 'n', label: 'No' },
+        { key: 'y', label: 'Yes' },
       ],
+      defaultKey: 'n',
       onPick: (key) => {
         ui.closePrompt();
         if (key === 'y') proceed();
@@ -234,9 +236,10 @@ export function exportFlow(deps: TuiDeps, state: Workbench, ui: FlowUi): void {
               kind: 'choice',
               label: `Overwrite ${displayPath}?`,
               options: [
-                { key: 'y', label: 'Yes' },
                 { key: 'n', label: 'No' },
+                { key: 'y', label: 'Yes' },
               ],
+              defaultKey: 'n',
               onPick: (overwriteKey) => {
                 ui.closePrompt();
                 if (overwriteKey === 'y') write();
@@ -268,18 +271,18 @@ export function editInEditorFlow(
   state: Workbench,
   ui: FlowUi,
   suspendTerminal: (callback: () => Promise<void>) => Promise<void> | void,
+  drainInput: () => void = () => undefined,
 ): void {
   const text = serializeRequest(state.request);
   let result = text;
   void (async () => {
     try {
       await suspendTerminal(async () => {
-        result = await deps.openEditor(text);
-        // Keys typed while the editor was handing the terminal back stay in
-        // the buffer and are replayed as commands once input resumes.
-        // Draining them is possible — `useStdin()` hands out the stream and
-        // input is paused for the duration of the suspension — but it is
-        // deliberately not implemented yet.
+        try {
+          result = await deps.openEditor(text);
+        } finally {
+          drainInput();
+        }
       });
       if (!ui.isMounted()) {
         ui.done();
@@ -305,4 +308,13 @@ export function editInEditorFlow(
       ui.done();
     }
   })();
+}
+
+/** Discard bytes that arrived while a suspended full-screen editor owned the
+ * terminal. This runs before Ink resumes its input listener, so those bytes
+ * cannot be replayed as TUI commands. */
+export function drainBufferedInput(stream: { read(): unknown }): void {
+  while (stream.read() !== null) {
+    // Reading is the drain; input contents are intentionally ignored.
+  }
 }

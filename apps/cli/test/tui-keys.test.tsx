@@ -101,9 +101,30 @@ describe('add / delete / duplicate / reorder', () => {
   it('a then s adds a score question, selects it, and focuses Questions', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={ONE_QUESTION_REQUEST} />);
+    stdin.write('2');
+    await tick();
     stdin.write('a');
     await tick();
     stdin.write('s');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Instructions');
+    stdin.write('New score');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    await backspace(stdin, 20);
+    stdin.write('Low');
+    await tick();
+    stdin.write('\u001B[B');
+    await tick();
+    for (let i = 0; i < 10; i += 1) {
+      stdin.write('\u001B[C');
+      await tick();
+    }
+    await backspace(stdin, '=json ""'.length);
+    stdin.write('High');
+    await tick();
+    stdin.write('\u0013');
     await tick();
     const frame = stripAnsi(lastFrame() ?? '');
     expect(frame).toMatch(/▸ \[score] score_1/);
@@ -114,6 +135,8 @@ describe('add / delete / duplicate / reorder', () => {
   it('d on the only question shows a notice and keeps it', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={ONE_QUESTION_REQUEST} />);
+    stdin.write('2');
+    await tick();
     stdin.write('d');
     await tick();
     const frame = lastFrame() ?? '';
@@ -121,9 +144,46 @@ describe('add / delete / duplicate / reorder', () => {
     expect(frame).toContain('only_one');
   });
 
+  it('cancelling a newly added question editor rolls the blank question back', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const { lastFrame, stdin } = render(<App deps={deps} initial={ONE_QUESTION_REQUEST} />);
+    stdin.write('2');
+    await tick();
+    stdin.write('a');
+    await tick();
+    stdin.write('c');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Instructions');
+    stdin.write('\u001B');
+    await escapeTick();
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('only_one');
+    expect(frame).not.toContain('choice_1');
+  });
+
+  it('delete defaults to No and only removes after explicit Yes', async () => {
+    const deps = makeDeps({ columns: 140 });
+    const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('2');
+    await tick();
+    stdin.write('d');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Delete "department"?');
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame() ?? '').toContain('department');
+    stdin.write('d');
+    await tick();
+    stdin.write('y');
+    await tick();
+    expect(stripAnsi(lastFrame() ?? '')).not.toContain('[choice] department');
+  });
+
   it('J moves the selected question down, K moves it back up', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('2');
+    await tick();
     stdin.write('J');
     await tick();
     let frame = lastFrame() ?? '';
@@ -138,6 +198,8 @@ describe('add / delete / duplicate / reorder', () => {
   it('D duplicates the selected question', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('2');
+    await tick();
     stdin.write('D');
     await tick();
     const frame = lastFrame() ?? '';
@@ -149,6 +211,8 @@ describe('rename (n)', () => {
   it('rejects a duplicate id, then renames and follows the selection', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('2');
+    await tick();
     stdin.write('n');
     await tick();
     await backspace(stdin, 'department'.length);
@@ -169,7 +233,7 @@ describe('rename (n)', () => {
 });
 
 describe('Enter edits the selected question', () => {
-  it('noul: instructions, then Yes means, Esc on No means keeps only criteria.true', async () => {
+  it('noul: Esc on the final step cancels the entire atomic draft', async () => {
     const deps = makeDeps({ columns: 140 });
     const { stdin } = render(<App deps={deps} initial={REQUEST} />);
     stdin.write('2'); // focus Questions
@@ -197,11 +261,7 @@ describe('Enter edits the selected question', () => {
     await tick();
     expect(deps.run).toHaveBeenCalledTimes(1);
     const sent = (deps.run as ReturnType<typeof vi.fn>).mock.calls[0]![0] as Request;
-    expect(sent.questions.is_urgent).toEqual({
-      type: 'noul',
-      instructions: 'New instructions',
-      criteria: { true: 'Yes means this' },
-    });
+    expect(sent.questions.is_urgent).toEqual(REQUEST.questions.is_urgent);
   });
 
   it('choice: LinesPrompt is prefilled with key: description lines', async () => {
@@ -279,31 +339,35 @@ describe('model (m) and state (i)', () => {
     expect(lastFrame() ?? '').toContain('model: jev-1.13.0');
   });
 
-  it('i sets a single-line state; a JSON object becomes structured state', async () => {
+  it('i explicitly edits state as Text or structured JSON', async () => {
     const deps = makeDeps({ columns: 140 });
     const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
     stdin.write('i');
     await tick();
+    stdin.write('\r'); // current string defaults to Text
+    await tick();
     await backspace(stdin, 30);
     stdin.write('New state line');
     await tick();
-    stdin.write('\r');
+    stdin.write('\u0013');
     await tick();
     expect(lastFrame() ?? '').toContain('New state line');
 
     stdin.write('i');
     await tick();
+    stdin.write('\u001B[B'); // choose JSON
+    await tick();
+    stdin.write('\r');
+    await tick();
     await backspace(stdin, 30);
     stdin.write('{"a":1}');
     await tick();
-    stdin.write('\r');
+    stdin.write('\u0013');
     await tick();
 
     stdin.write('i');
     await tick();
-    expect(lastFrame() ?? '').toContain(
-      'State is multi-line or structured — press E to edit it in your editor',
-    );
+    expect(lastFrame() ?? '').toContain('Current value: JSON');
   });
 });
 

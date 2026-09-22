@@ -5,8 +5,9 @@ import { Box, Text } from 'ink';
 import { DEFAULT_MODEL, estimateStateBudget, LIMITS, questionIds } from '@jev-ui/core';
 import type { Question, Request } from '@jev-ui/core';
 import { textOf, truncate } from './bars.js';
+import { Viewport, wrapDisplayText } from './Viewport.js';
+import type { ViewportRow } from './Viewport.js';
 
-const MAX_STATE_LINES = 12;
 const TOKEN_BUDGET = LIMITS.stateBudgetTokens.toLocaleString('en-US');
 const NOUL_SUMMARY_LEN = 40;
 
@@ -18,45 +19,56 @@ export function Frame(props: {
   focused: boolean;
   width: number;
   color: boolean;
+  height?: number;
   children?: ReactNode;
 }) {
-  const { title, focused, width, color, children } = props;
+  const { title, focused, width, color, height, children } = props;
   const prefix = focused ? '▌ ' : '  ';
+  const titleLine = truncate(`${prefix}${title}`, Math.max(0, width - 2));
   return (
     <Box
       flexDirection="column"
       width={width}
+      {...(height === undefined
+        ? {}
+        : { height: Math.max(3, Math.floor(height)), overflow: 'hidden' as const })}
       borderStyle="round"
       {...(focused && color ? { borderColor: 'cyan' as const } : {})}
     >
-      <Text>
-        {prefix}
-        {title}
-      </Text>
+      <Text>{titleLine}</Text>
       {children}
     </Box>
   );
 }
 
-export function StateView(props: { request: Request; width: number }) {
-  const { request, width } = props;
+export function StateView(props: {
+  request: Request;
+  width: number;
+  height?: number;
+  active?: boolean;
+}) {
+  const { request, width, height, active = false } = props;
   const text = textOf(request.state);
-  const lines = text.length > 0 ? text.split('\n') : [''];
-  const shown = lines.slice(0, MAX_STATE_LINES);
-  const extra = lines.length - shown.length;
   const budget = estimateStateBudget(request);
+  const model = request.model ?? DEFAULT_MODEL;
+  const strings = [
+    ...wrapDisplayText(`model: ${model}`, width),
+    ...wrapDisplayText(text, width),
+    ...wrapDisplayText(`≈ ${budget} / ${TOKEN_BUDGET} tokens`, width),
+  ];
+  const rows: ViewportRow[] = strings.map((line, index) => ({
+    key: `state-${index}`,
+    content: <Text>{line}</Text>,
+  }));
 
   return (
-    <Box flexDirection="column" width={width}>
-      <Text>{truncate(`model: ${request.model ?? DEFAULT_MODEL}`, width)}</Text>
-      {shown.map((line, index) => (
-        <Text key={index}>{truncate(line, width)}</Text>
-      ))}
-      {extra > 0 && <Text>… {extra} more lines</Text>}
-      <Text>
-        ≈ {budget} / {TOKEN_BUDGET} tokens
-      </Text>
-    </Box>
+    <Viewport
+      rows={rows}
+      width={width}
+      height={height}
+      active={active}
+      contentKey={`${width}:${model}:${text}:${budget}`}
+    />
   );
 }
 
@@ -76,15 +88,15 @@ function questionSummary(question: Question): string {
 // indent pushes them past the pane's right edge.
 function questionDetails(question: Question, width: number): string[] {
   const detailWidth = Math.max(0, width - 2);
-  const lines = [truncate(textOf(question.instructions), detailWidth)];
+  const lines = wrapDisplayText(textOf(question.instructions), detailWidth);
   if (question.type === 'choice') {
     for (const [key, value] of Object.entries(question.criteria)) {
       const description = value === null || value === undefined ? '' : textOf(value);
-      lines.push(truncate(`${key} — ${description}`, detailWidth));
+      lines.push(...wrapDisplayText(`${key} — ${description}`, detailWidth));
     }
   } else if (question.type === 'score') {
     question.criteria.forEach((level, index) => {
-      lines.push(truncate(`${index} · ${textOf(level)}`, detailWidth));
+      lines.push(...wrapDisplayText(`${index} · ${textOf(level)}`, detailWidth));
     });
   }
   return lines;
@@ -95,34 +107,51 @@ export function QuestionsView(props: {
   selectedId: string | undefined;
   width: number;
   color: boolean;
+  height?: number;
+  active?: boolean;
+  onSelect?(id: string): void;
 }) {
-  const { request, selectedId, width, color } = props;
+  const { request, selectedId, width, color, height, active = false, onSelect } = props;
   const ids = questionIds(request);
+  const rows: ViewportRow[] = [];
+
+  for (const id of ids) {
+    const question = request.questions[id];
+    if (!question) continue;
+    const selected = id === selectedId;
+    const prefix = selected ? '▸ ' : '  ';
+    const line = truncate(`${prefix}[${question.type}] ${id}  ${questionSummary(question)}`, width);
+    rows.push({
+      key: `${id}-header`,
+      selectionId: id,
+      content: <Text {...(selected && color ? { inverse: true as const } : {})}>{line}</Text>,
+    });
+    if (selected) {
+      questionDetails(question, width).forEach((detail, index) => {
+        rows.push({
+          key: `${id}-detail-${index}`,
+          selectionId: id,
+          content: (
+            <Text>
+              {'  '}
+              {detail}
+            </Text>
+          ),
+        });
+      });
+    }
+  }
 
   return (
-    <Box flexDirection="column" width={width}>
-      {ids.map((id) => {
-        const question = request.questions[id];
-        if (!question) return null;
-        const selected = id === selectedId;
-        const prefix = selected ? '▸ ' : '  ';
-        const line = truncate(
-          `${prefix}[${question.type}] ${id}  ${questionSummary(question)}`,
-          width,
-        );
-        return (
-          <Box key={id} flexDirection="column">
-            <Text {...(selected && color ? { inverse: true as const } : {})}>{line}</Text>
-            {selected &&
-              questionDetails(question, width).map((detail, index) => (
-                <Text key={index}>
-                  {'  '}
-                  {detail}
-                </Text>
-              ))}
-          </Box>
-        );
-      })}
-    </Box>
+    <Viewport
+      rows={rows}
+      width={width}
+      height={height}
+      active={active}
+      contentKey={`${width}:${JSON.stringify(request.questions)}`}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      selectionNavigation={true}
+    />
   );
 }

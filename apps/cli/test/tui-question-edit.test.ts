@@ -5,8 +5,10 @@ import {
   editableText,
   linesToChoice,
   linesToScore,
+  parseStructuredLines,
   scoreToLines,
   structuredPlaceholder,
+  structuredToLines,
 } from '../src/tui/questionEdit.js';
 
 const REJECT_STRUCTURED = 'Structured values can only be edited as JSON — press E';
@@ -20,6 +22,38 @@ function scoreQ(criteria: ScoreQuestion['criteria']): ScoreQuestion {
 }
 
 describe('choiceToLines / linesToChoice', () => {
+  it('round-trips colon and JSON-sensitive keys without changing ordinary key formatting', () => {
+    const q = choiceQ({ normal: 'plain', 'a:b': 'colon', ' spaced ': ' edge ' });
+    const lines = choiceToLines(q);
+    expect(lines).toEqual(['normal: plain', '"a:b": colon', '" spaced ": =json " edge "']);
+    expect(linesToChoice(lines, q)).toEqual({ ok: true, criteria: q.criteria });
+  });
+
+  it('keeps a literal placeholder distinct from an actual structured value after reorder', () => {
+    const structured = { nested: true };
+    const literal = structuredPlaceholder(0);
+    const q = choiceQ({ literal, structured });
+    const lines = choiceToLines(q);
+    expect(lines).toEqual([
+      `literal: =json "${literal}"`,
+      `structured: ${structuredPlaceholder(1)}`,
+    ]);
+    expect(linesToChoice([lines[1]!, lines[0]!], q)).toEqual({
+      ok: true,
+      criteria: { structured, literal },
+    });
+  });
+
+  it('round-trips empty, multiline, quoted, and marker-prefixed descriptions', () => {
+    const q = choiceQ({
+      empty: '',
+      multiline: 'one\ntwo',
+      quoted: 'say "yes"',
+      marker: '=json "literal"',
+    });
+    expect(linesToChoice(choiceToLines(q), q)).toEqual({ ok: true, criteria: q.criteria });
+  });
+
   it('round-trips key: description lines', () => {
     const q = choiceQ({ technical: 'A tech issue', sales: null, billing: 'Billing question' });
     const lines = choiceToLines(q);
@@ -136,6 +170,23 @@ describe('choiceToLines / linesToChoice', () => {
 });
 
 describe('scoreToLines / linesToScore', () => {
+  it('keeps a literal placeholder distinct from an actual structured level after reorder', () => {
+    const structured = { nested: true };
+    const literal = structuredPlaceholder(1);
+    const q = scoreQ([literal, structured]);
+    const lines = scoreToLines(q);
+    expect(lines).toEqual([`=json "${literal}"`, structuredPlaceholder(1)]);
+    expect(linesToScore([lines[1]!, lines[0]!], q)).toEqual({
+      ok: true,
+      criteria: [structured, literal],
+    });
+  });
+
+  it('round-trips empty, multiline, edge-whitespace, and marker-prefixed levels', () => {
+    const q = scoreQ(['', 'one\ntwo', ' edge ', '=json "literal"']);
+    expect(linesToScore(scoreToLines(q), q)).toEqual({ ok: true, criteria: q.criteria });
+  });
+
   it('round-trips levels', () => {
     const q = scoreQ(['Calm', 'Angry']);
     const lines = scoreToLines(q);
@@ -234,5 +285,22 @@ describe('editableText', () => {
 
   it('is not editable for an array', () => {
     expect(editableText([1, 2, 3])).toEqual({ editable: false });
+  });
+});
+
+describe('structured JSON editing', () => {
+  it('formats and parses object or array values without changing their structure', () => {
+    const value = { nested: ['one', 2] };
+    const lines = structuredToLines(value);
+    expect(lines).toEqual(['{', '  "nested": [', '    "one",', '    2', '  ]', '}']);
+    expect(parseStructuredLines(lines)).toEqual({ ok: true, value });
+  });
+
+  it('rejects invalid JSON and scalar JSON values', () => {
+    expect(parseStructuredLines(['{'])).toEqual({ ok: false, message: 'Enter valid JSON' });
+    expect(parseStructuredLines(['"plain"'])).toEqual({
+      ok: false,
+      message: 'JSON must be an object or array',
+    });
   });
 });

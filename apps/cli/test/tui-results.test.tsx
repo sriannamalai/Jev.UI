@@ -71,6 +71,10 @@ function stripAnsi(text: string): string {
   return text.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
+async function tick(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe('ResultsView', () => {
   it('shows the empty-state hint when there is no result and nothing is running', () => {
     const { lastFrame } = render(
@@ -406,6 +410,122 @@ describe('ResultsView', () => {
       .map((line) => stringWidth(line.slice(0, line.search(/[█░]/))));
     expect(barStarts.length).toBeGreaterThan(0);
     expect(new Set(barStarts).size).toBe(1);
+  });
+
+  it('bounds result rows and makes later answer details reachable with End', async () => {
+    const { lastFrame, stdin } = render(
+      <ResultsView
+        request={REQUEST}
+        result={RESULT}
+        stale={true}
+        running={false}
+        selectedId={undefined}
+        width={40}
+        color={false}
+        height={6}
+        active={true}
+      />,
+    );
+    let plain = stripAnsi(lastFrame() ?? '');
+    expect(plain.split('\n')).toHaveLength(6);
+    expect(plain).toContain('stale — request changed');
+    expect(plain).toContain('CHOICE department');
+    expect(plain).toContain('↕');
+    expect(plain).not.toContain('NOUL is_urgent');
+
+    stdin.write('\u001B[F');
+    await tick();
+    plain = stripAnsi(lastFrame() ?? '');
+    expect(plain.split('\n')).toHaveLength(6);
+    expect(plain).toContain('NOUL is_urgent');
+    expect(plain).toContain('0.99');
+    expect(plain).toContain('↕');
+    expect(plain).not.toMatch(/\x1b/);
+  });
+
+  it.each(Array.from({ length: 9 }, (_, index) => index + 1))(
+    'uses scrollable rows to preserve labels and numeric probabilities at width %i',
+    async (width) => {
+      const narrowRequest: Request = {
+        state: 'state',
+        questions: {
+          q: { type: 'choice', instructions: 'Pick', criteria: { 'probability-label': null } },
+        },
+      };
+      const narrowResult: RunResult = {
+        ...RESULT,
+        answers: {
+          q: {
+            type: 'choice',
+            choice: 'chosen',
+            confidence: 1,
+            probabilities: { 'probability-label': 0.37 },
+          },
+        },
+      };
+
+      const { lastFrame, stdin, unmount } = render(
+        <ResultsView
+          request={narrowRequest}
+          result={narrowResult}
+          stale={false}
+          running={false}
+          selectedId={undefined}
+          width={width}
+          color={false}
+          height={3}
+          active
+        />,
+      );
+      let revealed = '';
+      for (let step = 0; step < 80; step += 1) {
+        const before = lastFrame() ?? '';
+        const plain = stripAnsi(before);
+        const lines = plain.split('\n');
+        for (const line of lines) expect(stringWidth(line)).toBeLessThanOrEqual(width);
+        revealed += lines.at(-2) ?? '';
+        stdin.write('\u001B[B');
+        await tick();
+        if ((lastFrame() ?? '') === before) break;
+      }
+      expect(revealed).toContain('probability-label');
+      expect(revealed).toContain('0.37');
+      unmount();
+    },
+  );
+
+  it('preserves narrow CJK probability labels without overflowing', () => {
+    const narrowRequest: Request = {
+      state: 'state',
+      questions: {
+        q: { type: 'choice', instructions: 'Pick', criteria: { 技術部門: null } },
+      },
+    };
+    const narrowResult: RunResult = {
+      ...RESULT,
+      answers: {
+        q: {
+          type: 'choice',
+          choice: '技術部門',
+          confidence: 0.84,
+          probabilities: { 技術部門: 0.84 },
+        },
+      },
+    };
+    const { lastFrame } = render(
+      <ResultsView
+        request={narrowRequest}
+        result={narrowResult}
+        stale={false}
+        running={false}
+        selectedId={undefined}
+        width={1}
+        color={false}
+      />,
+    );
+    const plain = stripAnsi(lastFrame() ?? '');
+    for (const line of plain.split('\n')) expect(stringWidth(line)).toBeLessThanOrEqual(1);
+    expect(plain.replaceAll('\n', '')).toContain('\\u{6280}\\u{8853}\\u{90e8}\\u{9580}');
   });
 });
 

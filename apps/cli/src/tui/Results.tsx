@@ -1,46 +1,28 @@
-// The TUI's Results pane: per-question answer blocks in request
-// order, mirroring `apps/web`'s ResultsPane ordering/stale rules, rendered
-// as text for a terminal via Ink instead of DOM.
-import { Box, Text } from 'ink';
+// The TUI's Results pane: per-question answer blocks in request order,
+// mirroring the web workbench's ordering and stale rules.
+import { Text } from 'ink';
 import { questionIds } from '@jev-ui/core';
-import type {
-  Answer,
-  ChoiceAnswer,
-  NoulAnswer,
-  Request,
-  RunResult,
-  ScoreAnswer,
-} from '@jev-ui/core';
+import type { Answer, Request, RunResult } from '@jev-ui/core';
 import { bar } from '../format.js';
-import {
-  LOW_CONFIDENCE,
-  displayWidth,
-  fmt2,
-  padEndDisplay,
-  renderScale,
-  textOf,
-  truncate,
-} from './bars.js';
+import { LOW_CONFIDENCE, displayWidth, fmt2, padEndDisplay, renderScale, textOf } from './bars.js';
+import { Viewport, wrapDisplayText } from './Viewport.js';
+import type { ViewportRow } from './Viewport.js';
 
 const MAX_LABEL = 28;
 const NUM_WIDTH = 4;
 const GUTTERS = 4;
 const MIN_BAR = 8;
 
-interface Row {
+interface ProbabilityRow {
   label: string;
   value: number;
 }
-
 interface TextStyle {
   inverse?: true;
   dimColor?: true;
   color?: string;
 }
 
-/** Only ever produces style props when `color` is enabled — with `color`
- * false the caller gets an empty object, so no colour/inverse/dim prop is
- * ever passed to Ink (spec: "NO_COLOR → no colour props"). */
 function styleProps(
   color: boolean,
   opts: { inverse?: boolean; dim?: boolean; yellow?: boolean },
@@ -54,233 +36,174 @@ function styleProps(
 }
 
 function layout(labels: string[], width: number): { labelWidth: number; barWidth: number } {
-  const raw = labels.length > 0 ? Math.max(...labels.map((l) => displayWidth(l))) : 0;
-  const labelWidth = Math.min(raw, MAX_LABEL);
-  const barWidth = Math.max(MIN_BAR, width - labelWidth - NUM_WIDTH - GUTTERS);
+  const raw = labels.length > 0 ? Math.max(...labels.map(displayWidth)) : 0;
+  const availableLabel = Math.max(1, width - MIN_BAR - NUM_WIDTH - GUTTERS);
+  const labelWidth = Math.max(1, Math.min(raw, MAX_LABEL, availableLabel));
+  const barWidth = Math.max(1, width - labelWidth - NUM_WIDTH - GUTTERS);
   return { labelWidth, barWidth };
 }
 
-function RowLine(props: {
-  row: Row;
-  labelWidth: number;
-  barWidth: number;
-  dim: boolean;
-  color: boolean;
-}) {
-  const { row, labelWidth, barWidth, dim, color } = props;
-  const label = padEndDisplay(truncate(row.label, labelWidth), labelWidth);
-  const text = `${label}  ${bar(row.value, barWidth)}  ${fmt2(row.value)}`;
-  return <Text {...styleProps(color, { dim })}>{text}</Text>;
-}
-
-function ConfidenceText(props: { confidence: number; color: boolean }) {
-  const { confidence, color } = props;
-  const low = Number.isFinite(confidence) && confidence < LOW_CONFIDENCE;
-  const text = `conf ${fmt2(confidence)}${low ? ' !' : ''}`;
-  return <Text {...styleProps(color, { yellow: low })}>{text}</Text>;
-}
-
-function Header(props: {
-  prefix: string;
-  before: string;
-  confidence?: number;
-  selected: boolean;
-  dim: boolean;
-  color: boolean;
-}) {
-  const { prefix, before, confidence, selected, dim, color } = props;
-  return (
-    <Text {...styleProps(color, { inverse: selected, dim })}>
-      {prefix}
-      {before}
-      {confidence !== undefined && <ConfidenceText confidence={confidence} color={color} />}
-    </Text>
-  );
-}
-
-function ChoiceBlock(props: {
-  id: string;
-  answer: ChoiceAnswer;
-  prefix: string;
-  selected: boolean;
-  dim: boolean;
-  width: number;
-  color: boolean;
-}) {
-  const { id, answer, prefix, selected, dim, width, color } = props;
-  const rows: Row[] = Object.entries(answer.probabilities)
-    .map(([label, value]) => ({ label, value }))
-    .sort((a, b) => b.value - a.value);
-  const { labelWidth, barWidth } = layout(
-    rows.map((r) => r.label),
-    width,
-  );
-  return (
-    <Box flexDirection="column">
-      <Header
-        prefix={prefix}
-        before={`CHOICE ${id}  ${answer.choice}  `}
-        confidence={answer.confidence}
-        selected={selected}
-        dim={dim}
-        color={color}
-      />
-      {rows.map((row) => (
-        <RowLine
-          key={row.label}
-          row={row}
-          labelWidth={labelWidth}
-          barWidth={barWidth}
-          dim={dim}
-          color={color}
-        />
-      ))}
-    </Box>
-  );
-}
-
-function ScoreBlock(props: {
-  id: string;
-  answer: ScoreAnswer;
-  prefix: string;
-  selected: boolean;
-  dim: boolean;
-  width: number;
-  color: boolean;
-}) {
-  const { id, answer, prefix, selected, dim, width, color } = props;
-  const levels = Object.keys(answer.legend).sort((a, b) => Number(a) - Number(b));
-  const nearestIndex = Math.min(
-    Math.max(Math.round(answer.score), 0),
-    Math.max(levels.length - 1, 0),
-  );
-  const nearestKey = levels[nearestIndex];
-  const nearestLegend = nearestKey !== undefined ? textOf(answer.legend[nearestKey]) : '';
-
-  const rows: Row[] = levels.map((level) => ({
-    label: `${level} · ${textOf(answer.legend[level])}`,
-    value: answer.probabilities[level] ?? 0,
+function headerRows(
+  keyPrefix: string,
+  text: string,
+  answerId: string,
+  width: number,
+  color: boolean,
+  selected: boolean,
+  dim: boolean,
+  lowConfidence = false,
+): ViewportRow[] {
+  return wrapDisplayText(text, width).map((line, index) => ({
+    key: `${keyPrefix}-header-${index}`,
+    selectionId: answerId,
+    content: (
+      <Text {...styleProps(color, { inverse: selected, dim, yellow: lowConfidence })}>{line}</Text>
+    ),
   }));
-  const { labelWidth, barWidth } = layout(
-    rows.map((r) => r.label),
-    width,
-  );
-
-  return (
-    <Box flexDirection="column">
-      <Header
-        prefix={prefix}
-        before={`SCORE ${id}  ${fmt2(answer.score)}  ${nearestLegend}  `}
-        confidence={answer.confidence}
-        selected={selected}
-        dim={dim}
-        color={color}
-      />
-      <Text {...styleProps(color, { dim })}>
-        {renderScale(answer.score, levels.length, barWidth)}
-      </Text>
-      {rows.map((row) => (
-        <RowLine
-          key={row.label}
-          row={row}
-          labelWidth={labelWidth}
-          barWidth={barWidth}
-          dim={dim}
-          color={color}
-        />
-      ))}
-    </Box>
-  );
 }
 
-function NoulBlock(props: {
-  id: string;
-  answer: NoulAnswer;
-  prefix: string;
-  selected: boolean;
-  dim: boolean;
-  width: number;
-  color: boolean;
-}) {
-  const { id, answer, prefix, selected, dim, width, color } = props;
-  const word = Number.isFinite(answer.noul) && answer.noul >= 0.5 ? 'yes' : 'no';
-  const rows: Row[] = [{ label: 'P(yes)', value: answer.noul }];
-  const { labelWidth, barWidth } = layout(
-    rows.map((r) => r.label),
-    width,
-  );
-
-  return (
-    <Box flexDirection="column">
-      <Header
-        prefix={prefix}
-        before={`NOUL ${id}  ${fmt2(answer.noul)}  ${word}`}
-        selected={selected}
-        dim={dim}
-        color={color}
-      />
-      {rows.map((row) => (
-        <RowLine
-          key={row.label}
-          row={row}
-          labelWidth={labelWidth}
-          barWidth={barWidth}
-          dim={dim}
-          color={color}
-        />
-      ))}
-    </Box>
-  );
-}
-
-function Block(props: {
-  id: string;
-  answer: Answer;
-  selected: boolean;
-  stale: boolean;
-  width: number;
-  color: boolean;
-}) {
-  const { id, answer, selected, stale, width, color } = props;
-  const prefix = selected ? '▸ ' : '  ';
-  switch (answer.type) {
-    case 'choice':
-      return (
-        <ChoiceBlock
-          id={id}
-          answer={answer}
-          prefix={prefix}
-          selected={selected}
-          dim={stale}
-          width={width}
-          color={color}
-        />
-      );
-    case 'score':
-      return (
-        <ScoreBlock
-          id={id}
-          answer={answer}
-          prefix={prefix}
-          selected={selected}
-          dim={stale}
-          width={width}
-          color={color}
-        />
-      );
-    case 'noul':
-      return (
-        <NoulBlock
-          id={id}
-          answer={answer}
-          prefix={prefix}
-          selected={selected}
-          dim={stale}
-          width={width}
-          color={color}
-        />
-      );
+function probabilityRows(
+  keyPrefix: string,
+  rows: ProbabilityRow[],
+  answerId: string,
+  width: number,
+  color: boolean,
+  dim: boolean,
+): ViewportRow[] {
+  if (width < MIN_BAR + NUM_WIDTH + GUTTERS + 1) {
+    const result: ViewportRow[] = [];
+    rows.forEach((row, rowIndex) => {
+      wrapDisplayText(row.label, width).forEach((line, lineIndex) => {
+        result.push({
+          key: `${keyPrefix}-probability-${rowIndex}-label-${lineIndex}`,
+          selectionId: answerId,
+          content: <Text {...styleProps(color, { dim })}>{line}</Text>,
+        });
+      });
+      result.push({
+        key: `${keyPrefix}-probability-${rowIndex}-bar`,
+        selectionId: answerId,
+        content: <Text {...styleProps(color, { dim })}>{bar(row.value, width)}</Text>,
+      });
+      wrapDisplayText(fmt2(row.value), width).forEach((line, lineIndex) => {
+        result.push({
+          key: `${keyPrefix}-probability-${rowIndex}-value-${lineIndex}`,
+          selectionId: answerId,
+          content: <Text {...styleProps(color, { dim })}>{line}</Text>,
+        });
+      });
+    });
+    return result;
   }
+
+  const { labelWidth, barWidth } = layout(
+    rows.map((row) => row.label),
+    width,
+  );
+  const result: ViewportRow[] = [];
+  rows.forEach((row, rowIndex) => {
+    const labels = wrapDisplayText(row.label, labelWidth);
+    labels.forEach((label, lineIndex) => {
+      const padded = padEndDisplay(label, labelWidth);
+      result.push({
+        key: `${keyPrefix}-probability-${rowIndex}-${lineIndex}`,
+        selectionId: answerId,
+        content: (
+          <Text {...styleProps(color, { dim })}>
+            {lineIndex === 0
+              ? `${padded}  ${bar(row.value, barWidth)}  ${fmt2(row.value)}`
+              : padded}
+          </Text>
+        ),
+      });
+    });
+  });
+  return result;
+}
+
+function answerRows(
+  id: string,
+  answer: Answer,
+  selected: boolean,
+  stale: boolean,
+  width: number,
+  color: boolean,
+): ViewportRow[] {
+  const prefix = selected ? '▸ ' : '  ';
+  if (answer.type === 'choice') {
+    const low = Number.isFinite(answer.confidence) && answer.confidence < LOW_CONFIDENCE;
+    const rows = Object.entries(answer.probabilities)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value);
+    return [
+      ...headerRows(
+        id,
+        `${prefix}CHOICE ${id}  ${answer.choice}  conf ${fmt2(answer.confidence)}${low ? ' !' : ''}`,
+        id,
+        width,
+        color,
+        selected,
+        stale,
+        low,
+      ),
+      ...probabilityRows(id, rows, id, width, color, stale),
+    ];
+  }
+
+  if (answer.type === 'score') {
+    const levels = Object.keys(answer.legend).sort((a, b) => Number(a) - Number(b));
+    const nearestIndex = Math.min(
+      Math.max(Math.round(answer.score), 0),
+      Math.max(levels.length - 1, 0),
+    );
+    const nearestKey = levels[nearestIndex];
+    const nearestLegend = nearestKey === undefined ? '' : textOf(answer.legend[nearestKey]);
+    const low = Number.isFinite(answer.confidence) && answer.confidence < LOW_CONFIDENCE;
+    const probabilities = levels.map((level) => ({
+      label: `${level} · ${textOf(answer.legend[level])}`,
+      value: answer.probabilities[level] ?? 0,
+    }));
+    const { barWidth } = layout(
+      probabilities.map((row) => row.label),
+      width,
+    );
+    return [
+      ...headerRows(
+        id,
+        `${prefix}SCORE ${id}  ${fmt2(answer.score)}  ${nearestLegend}  conf ${fmt2(answer.confidence)}${low ? ' !' : ''}`,
+        id,
+        width,
+        color,
+        selected,
+        stale,
+        low,
+      ),
+      {
+        key: `${id}-scale`,
+        selectionId: id,
+        content: (
+          <Text {...styleProps(color, { dim: stale })}>
+            {renderScale(answer.score, levels.length, barWidth)}
+          </Text>
+        ),
+      },
+      ...probabilityRows(id, probabilities, id, width, color, stale),
+    ];
+  }
+
+  const word = Number.isFinite(answer.noul) && answer.noul >= 0.5 ? 'yes' : 'no';
+  return [
+    ...headerRows(
+      id,
+      `${prefix}NOUL ${id}  ${fmt2(answer.noul)}  ${word}`,
+      id,
+      width,
+      color,
+      selected,
+      stale,
+    ),
+    ...probabilityRows(id, [{ label: 'P(yes)', value: answer.noul }], id, width, color, stale),
+  ];
 }
 
 export function ResultsView(props: {
@@ -291,42 +214,53 @@ export function ResultsView(props: {
   selectedId: string | undefined;
   width: number;
   color: boolean;
+  height?: number;
+  active?: boolean;
 }) {
-  const { request, result, stale, running, selectedId, width, color } = props;
+  const {
+    request,
+    result,
+    stale,
+    running,
+    selectedId,
+    width,
+    color,
+    height,
+    active = false,
+  } = props;
+  const rows: ViewportRow[] = [];
 
   if (!result && !running) {
-    return (
-      <Box flexDirection="column" width={width}>
-        <Text>Run the request (r) to see answers here.</Text>
-      </Box>
-    );
-  }
-
-  const blocks: { id: string; answer: Answer }[] = [];
-  if (result) {
-    for (const id of questionIds(request)) {
-      if (!Object.hasOwn(result.answers, id)) continue;
-      const answer = result.answers[id];
-      if (answer) blocks.push({ id, answer });
+    rows.push({ key: 'empty', content: <Text>Run the request (r) to see answers here.</Text> });
+  } else {
+    if (running) rows.push({ key: 'running', content: <Text>Running…</Text> });
+    if (stale) {
+      rows.push({
+        key: 'stale',
+        content: <Text {...styleProps(color, { dim: true })}>stale — request changed</Text>,
+      });
+    }
+    let blockIndex = 0;
+    if (result) {
+      for (const id of questionIds(request)) {
+        if (!Object.hasOwn(result.answers, id)) continue;
+        const answer = result.answers[id];
+        if (!answer) continue;
+        if (blockIndex > 0) rows.push({ key: `${id}-gap`, content: <Text> </Text> });
+        rows.push(...answerRows(id, answer, id === selectedId, stale, width, color));
+        blockIndex += 1;
+      }
     }
   }
 
   return (
-    <Box flexDirection="column" width={width}>
-      {running && <Text>Running…</Text>}
-      {stale && <Text {...styleProps(color, { dim: true })}>stale — request changed</Text>}
-      {blocks.map(({ id, answer }, index) => (
-        <Box key={id} flexDirection="column" marginTop={index > 0 ? 1 : 0}>
-          <Block
-            id={id}
-            answer={answer}
-            selected={id === selectedId}
-            stale={stale}
-            width={width}
-            color={color}
-          />
-        </Box>
-      ))}
-    </Box>
+    <Viewport
+      rows={rows}
+      width={width}
+      height={height}
+      active={active}
+      contentKey={`${width}:${running}:${stale}:${JSON.stringify(result)}:${questionIds(request).join(',')}`}
+      selectedId={selectedId}
+    />
   );
 }

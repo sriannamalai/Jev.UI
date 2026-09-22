@@ -11,8 +11,8 @@ export const PANES: readonly Pane[] = ['state', 'questions', 'results'];
 /** The UI's input mode. In `prompt` mode `handleKey` does nothing at all —
  * the open prompt component owns `useInput` instead (App disables this
  * handler's hook via `isActive` while a prompt is open, but `handleKey`
- * also short-circuits defensively). `help` shows the key reference
- * overlay; only Esc does anything while it's open. */
+ * also short-circuits defensively). `help` shows the scrollable key
+ * reference; Esc closes it and the normal quit keys remain available. */
 export type Mode = 'normal' | 'prompt' | 'help';
 
 /** The complete TUI keymap, key label -> what it does. Rendered verbatim by
@@ -20,21 +20,24 @@ export type Mode = 'normal' | 'prompt' | 'help';
 export const KEYMAP: Record<string, string> = {
   Tab: 'cycle panes',
   '1 / 2 / 3': 'jump to a pane',
-  '↑ / ↓ (k/j)': 'move selection',
+  '↑ / ↓ (k/j)': 'select questions / scroll State or Results',
+  'PgUp / PgDn': 'page through the focused pane',
+  'Home / End': 'jump to start / end of the focused pane',
   r: 'run',
   a: 'add question',
   d: 'delete question',
   D: 'duplicate question',
   'J / K': 'move question down / up',
-  Enter: 'edit selected question (Questions pane)',
+  Enter: 'edit State or the selected question',
   n: 'rename selected question',
-  i: 'edit state (single line)',
+  i: 'edit state as Text or JSON',
   m: 'set model',
   o: 'open a saved set',
   s: 'save (prompts for a name the first time)',
   S: 'save as (always prompts for a name)',
   e: 'export as cURL / Python / TypeScript',
   E: 'edit the full request as JSON in $EDITOR',
+  'Ctrl+P': 'open Actions',
   '?': 'show help (Esc closes)',
   Esc: 'close help / cancel a prompt',
   q: 'quit (confirms first if there are unsaved changes)',
@@ -43,11 +46,14 @@ export const KEYMAP: Record<string, string> = {
 /** `'?'`'s grouping of `KEYMAP` into short headings. Every `KEYMAP` key
  * appears in exactly one group; the help overlay renders group-by-group. */
 export const KEY_GROUPS: { heading: string; keys: string[] }[] = [
-  { heading: 'Navigate', keys: ['Tab', '1 / 2 / 3', '↑ / ↓ (k/j)'] },
+  {
+    heading: 'Navigate',
+    keys: ['Tab', '1 / 2 / 3', '↑ / ↓ (k/j)', 'PgUp / PgDn', 'Home / End'],
+  },
   { heading: 'Run', keys: ['r'] },
   { heading: 'Edit', keys: ['a', 'd', 'D', 'J / K', 'Enter', 'n', 'i', 'm'] },
   { heading: 'Sets & export', keys: ['o', 's', 'S', 'e', 'E'] },
-  { heading: 'App', keys: ['?', 'Esc', 'q'] },
+  { heading: 'App', keys: ['Ctrl+P', '?', 'Esc', 'q'] },
 ];
 
 export interface KeyContext {
@@ -72,6 +78,7 @@ export interface KeyContext {
   save(forcePrompt: boolean): void;
   exportFlow(): void;
   editInEditor(): void;
+  openActions(): void;
 }
 
 function cyclePane(current: Pane, delta: 1 | -1): Pane {
@@ -111,6 +118,11 @@ export function handleKey(input: string, key: Key, ctx: KeyContext): void {
     return;
   }
 
+  if (key.ctrl && input === 'p') {
+    ctx.openActions();
+    return;
+  }
+
   if (key.escape) {
     return;
   }
@@ -142,32 +154,33 @@ export function handleKey(input: string, key: Key, ctx: KeyContext): void {
     return;
   }
 
-  if (key.return && ctx.focused === 'questions') {
-    ctx.editSelected();
+  if (key.return) {
+    if (ctx.focused === 'questions') ctx.editSelected();
+    else if (ctx.focused === 'state') ctx.editState();
     return;
   }
 
-  if (input === 'a') {
+  if (ctx.focused === 'questions' && input === 'a') {
     ctx.addQuestion();
     return;
   }
-  if (input === 'd') {
+  if (ctx.focused === 'questions' && input === 'd') {
     ctx.deleteQuestion();
     return;
   }
-  if (input === 'D') {
+  if (ctx.focused === 'questions' && input === 'D') {
     ctx.duplicateQuestion();
     return;
   }
-  if (input === 'J') {
+  if (ctx.focused === 'questions' && input === 'J') {
     ctx.moveQuestion(1);
     return;
   }
-  if (input === 'K') {
+  if (ctx.focused === 'questions' && input === 'K') {
     ctx.moveQuestion(-1);
     return;
   }
-  if (input === 'n') {
+  if (ctx.focused === 'questions' && input === 'n') {
     ctx.renameSelected();
     return;
   }

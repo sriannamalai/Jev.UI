@@ -15,12 +15,15 @@ import {
 import { openInEditor } from './editor.js';
 import { App } from './App.js';
 import type { TuiDeps } from './App.js';
+import type { ReactNode } from 'react';
+import type { RenderOptions } from 'ink';
 
 export interface RunTuiOptions {
   setsDir?: string;
   env?: NodeJS.ProcessEnv;
   stdin?: { isTTY?: boolean };
   stderr?: { write(s: string): unknown };
+  renderApp?: (node: ReactNode, options: RenderOptions) => { waitUntilExit(): Promise<unknown> };
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -36,6 +39,7 @@ export async function runTui(opts: RunTuiOptions = {}): Promise<void> {
   const env = opts.env ?? process.env;
   const stdin = opts.stdin ?? process.stdin;
   const stderr = opts.stderr ?? process.stderr;
+  const renderApp = opts.renderApp ?? render;
 
   if (stdin.isTTY !== true) {
     stderr.write('jev: the interactive UI needs a terminal — use "jev ask" for pipes\n');
@@ -61,6 +65,9 @@ export async function runTui(opts: RunTuiOptions = {}): Promise<void> {
   // in ink's App.js: its internal handler runs ahead of user listeners).
   // `App`'s quit flow needs to see Ctrl+C itself to ask for confirmation
   // when there are unsaved changes, so that default is turned off here.
-  const instance = render(<App deps={deps} />, { exitOnCtrlC: false });
+  const instance = renderApp(<App deps={deps} />, {
+    alternateScreen: true,
+    exitOnCtrlC: false,
+  });
   await instance.waitUntilExit();
 }

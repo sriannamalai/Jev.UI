@@ -3,20 +3,39 @@
 import { Text } from 'ink';
 import { formatUsd } from '@jev-ui/core';
 import type { RunResult } from '@jev-ui/core';
+import { truncate } from './bars.js';
 
-export function StatusLine(props: { result: RunResult | undefined; keyConfigured: boolean }) {
-  const { result, keyConfigured } = props;
+export function StatusLine(props: {
+  result: RunResult | undefined;
+  keyConfigured: boolean;
+  message?: string;
+  isError?: boolean;
+  width?: number;
+  color?: boolean;
+}) {
+  const { result, keyConfigured, message, isError = false, width = 100, color = true } = props;
+
+  if (message) {
+    return <Text color={isError && color ? 'red' : undefined}>{truncate(message, width)}</Text>;
+  }
 
   if (!keyConfigured) {
-    return <Text>TYPESAFE_API_KEY is not set — editing works, run is disabled</Text>;
+    return (
+      <Text>{truncate('TYPESAFE_API_KEY is not set — editing works, run is disabled', width)}</Text>
+    );
   }
 
   if (!result) {
-    return <Text>ready</Text>;
+    return <Text>{truncate('ready', width)}</Text>;
   }
 
   const latency = Math.round(result.latencyMs);
   return (
-    <Text>{`${result.model} · ${latency} ms · ${result.usage.inputTokens} tok · ${formatUsd(result.costUsd)}`}</Text>
+    <Text>
+      {truncate(
+        `${result.model} · ${latency} ms · ${result.usage.inputTokens} tok · ${formatUsd(result.costUsd)}`,
+        width,
+      )}
+    </Text>
   );
 }

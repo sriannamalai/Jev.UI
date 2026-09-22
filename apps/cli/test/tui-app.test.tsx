@@ -148,6 +148,44 @@ describe('App layout', () => {
     const frame = lastFrame() ?? '';
     expect(frame).not.toMatch(/\x1b/);
   });
+
+  it('pins set, model, dirty state, status and context within the live terminal rows', () => {
+    const deps = makeDeps({ columns: 90, rows: 12 });
+    const { lastFrame } = render(<App deps={deps} initial={REQUEST} />);
+    const lines = stripAnsi(lastFrame() ?? '').split('\n');
+    expect(lines.length).toBeLessThanOrEqual(12);
+    expect(lines[0]).toContain('Set: Untitled');
+    expect(lines[0]).toContain('Model: jev-latest');
+    expect(lines[0]).toContain('Saved');
+    expect(lines.at(-2)).toContain('ready');
+    expect(lines.at(-1)).toContain('Ctrl+P Actions');
+  });
+
+  it('renders safely in a terminal too short for a pane frame', () => {
+    const deps = makeDeps({ columns: 24, rows: 4 });
+    const { lastFrame } = render(<App deps={deps} initial={REQUEST} />);
+    const lines = stripAnsi(lastFrame() ?? '').split('\n');
+    expect(lines.length).toBeLessThanOrEqual(4);
+    expect(lines[0]).toContain('Set:');
+    expect(lines.at(-1)).toContain('Ctrl+P');
+  });
+
+  it('keeps a prompt mounted and cancellable after resizing to a tiny terminal', async () => {
+    const large = makeDeps({ columns: 90, rows: 20 });
+    const tiny = { ...large, rows: 4 };
+    const instance = render(<App deps={large} initial={REQUEST} />);
+    instance.stdin.write('m');
+    await tick();
+    instance.rerender(<App deps={tiny} initial={REQUEST} />);
+    await tick();
+    expect(instance.lastFrame() ?? '').toContain('Model');
+    instance.stdin.write('\u001B');
+    await escapeTick();
+    instance.rerender(<App deps={large} initial={REQUEST} />);
+    await tick();
+    expect(instance.lastFrame() ?? '').toContain('STATE');
+    expect(instance.lastFrame() ?? '').not.toContain('▌ Prompt');
+  });
 });
 
 describe('App focus and selection', () => {
@@ -302,6 +340,120 @@ describe('App help overlay', () => {
     await escapeTick();
     frame = lastFrame() ?? '';
     expect(frame).toContain('STATE');
+  });
+});
+
+describe('App Actions', () => {
+  it('keeps Actions mounted and cancellable after resizing to a tiny terminal', async () => {
+    const large = makeDeps({ columns: 90, rows: 20 });
+    const tiny = { ...large, rows: 4 };
+    const instance = render(<App deps={large} initial={REQUEST} />);
+    instance.stdin.write('\u0010');
+    await tick();
+    instance.rerender(<App deps={tiny} initial={REQUEST} />);
+    await tick();
+    expect(instance.lastFrame() ?? '').toContain('Run');
+    instance.stdin.write('\u001B');
+    await escapeTick();
+    instance.rerender(<App deps={large} initial={REQUEST} />);
+    await tick();
+    expect(instance.lastFrame() ?? '').toContain('STATE');
+    expect(instance.lastFrame() ?? '').not.toContain('▌ Actions');
+  });
+
+  it('keeps a plain selection marker without ANSI when NO_COLOR is set', async () => {
+    const deps = makeDeps({ columns: 90, rows: 20, env: { NO_COLOR: '1' } });
+    const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('\u0010');
+    await tick();
+    const frame = lastFrame() ?? '';
+    expect(frame).not.toMatch(/\x1b/);
+    expect(frame).toContain('▸ Run');
+  });
+
+  it('opens on Ctrl+P, labels shortcuts, and explains why Run is disabled', async () => {
+    const deps = makeDeps({ columns: 90, rows: 20, keyConfigured: false });
+    const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('\u0010');
+    await tick();
+    const frame = stripAnsi(lastFrame() ?? '');
+    expect(frame).toContain('Actions');
+    expect(frame).toContain('Run');
+    expect(frame).toContain('r');
+    expect(frame).toContain('disabled: TYPESAFE_API_KEY is not set');
+  });
+
+  it('explains invalid and running Run entries and never invokes a disabled action', async () => {
+    const invalid: Request = {
+      state: 'state',
+      questions: { blank: { type: 'noul', instructions: '' } },
+    };
+    const invalidDeps = makeDeps({ columns: 90, rows: 20 });
+    const invalidApp = render(<App deps={invalidDeps} initial={invalid} />);
+    invalidApp.stdin.write('\u0010');
+    await tick();
+    expect(stripAnsi(invalidApp.lastFrame() ?? '')).toContain(
+      'disabled: Add instructions or criteria to "blank"',
+    );
+    invalidApp.stdin.write('\r');
+    await tick();
+    expect(invalidDeps.run).not.toHaveBeenCalled();
+    invalidApp.unmount();
+
+    let finish: (result: RunResult) => void = () => undefined;
+    const runningDeps = makeDeps({
+      columns: 90,
+      rows: 20,
+      run: vi.fn(
+        () =>
+          new Promise<RunResult>((resolve) => {
+            finish = resolve;
+          }),
+      ),
+    });
+    const runningApp = render(<App deps={runningDeps} initial={REQUEST} />);
+    runningApp.stdin.write('r');
+    await tick();
+    runningApp.stdin.write('\u0010');
+    await tick();
+    expect(stripAnsi(runningApp.lastFrame() ?? '')).toContain(
+      'disabled: a run is already in progress',
+    );
+    runningApp.stdin.write('\r');
+    await tick();
+    expect(runningDeps.run).toHaveBeenCalledOnce();
+    finish(RESULT);
+    runningApp.unmount();
+  });
+
+  it('routes an enabled action exactly once', async () => {
+    const deps = makeDeps({ columns: 90, rows: 20 });
+    const { stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('\u0010');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(deps.run).toHaveBeenCalledOnce();
+  });
+
+  it('selects an action with arrows and Enter, then closes on Esc', async () => {
+    const deps = makeDeps({ columns: 90, rows: 20 });
+    const { lastFrame, stdin } = render(<App deps={deps} initial={REQUEST} />);
+    stdin.write('\u0010');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Actions');
+    stdin.write('\u001B[B');
+    await tick();
+    stdin.write('\r');
+    await tick();
+    expect(lastFrame() ?? '').toContain('Edit state as');
+    expect(lastFrame() ?? '').not.toContain('▌ Actions');
+
+    stdin.write('\u0010');
+    await tick();
+    stdin.write('\u001B');
+    await escapeTick();
+    expect(lastFrame() ?? '').not.toContain('▌ Actions');
   });
 });
 
