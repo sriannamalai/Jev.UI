@@ -15,8 +15,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const sourceExecutable = process.argv[2];
-if (sourceExecutable === undefined || process.argv.length !== 3) {
-  throw new Error('usage: node scripts/release/smoke-binary.mjs <executable>');
+const metadataPath = process.argv[3];
+if (sourceExecutable === undefined || process.argv.length < 3 || process.argv.length > 4) {
+  throw new Error('usage: node scripts/release/smoke-binary.mjs <executable> [metadata-path]');
 }
 
 function waitForExit(child, timeoutMs = 10_000) {
@@ -91,7 +92,7 @@ function assetPath(text, expression, label) {
 
 const metadata = JSON.parse(
   await readFile(
-    path.join(path.dirname(path.resolve(sourceExecutable)), 'build-metadata.json'),
+    metadataPath ?? path.join(path.dirname(path.resolve(sourceExecutable)), 'build-metadata.json'),
     'utf8',
   ),
 );
